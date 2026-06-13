@@ -1,0 +1,26 @@
+# Build context hygiene — keep the image small and reproducible.
+# Anything rebuilt inside the image (sandbox/out) or host-only state is excluded.
+.git
+.gitignore
+.env
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Runtime/host state — regenerated in-container or per-run.
+/data/
+sandbox/out/
+sandbox/cache/
+sandbox/broadcast/
+sandbox/.anvil.pid
+sandbox/.anvil.log
+demo/scenarios/last_run.json
+
+# Docs that don't belong in the runtime image — but keep README.md, which
+# pyproject.toml references as the package readme (needed to build the wheel).
+*.md
+!README.md

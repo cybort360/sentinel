@@ -1,0 +1,140 @@
+# SENTINEL — single compose stack for local dev AND Alibaba Cloud ECS
+# (architecture.md §15). One image (Dockerfile) runs every Python service;
+# the `anvil` service reuses it purely for the Foundry toolchain.
+#
+# Rule 3 (CLAUDE.md): SimulationMCP and the orchestrator may only broadcast to a
+# LOCAL Anvil. `assert_local_rpc` permits loopback hosts only, so service-DNS
+# (e.g. http://anvil:8545) would be REJECTED by design. Those two services
+# therefore JOIN anvil's network namespace (`network_mode: service:anvil`) and
+# reach it at 127.0.0.1 — the safety boundary stays genuine, no allowlist
+# widening. CodebaseMCP and MemoryMCP don't touch Anvil, so they run as ordinary
+# networked services.
+#
+# The reproducible `make demo` trace runs the engines IN-PROCESS for determinism
+# (no Qwen creds in this environment — see demo/run_demo.py). The three MCP
+# services here are the SAME engines wrapped as real FastMCP HTTP endpoints; the
+# stack stands them up to prove the custom MCP servers (Track 3) deploy and run
+# on the Alibaba Cloud host. They are not on the demo's critical path.
+name: sentinel
+
+x-app-image: &app-image
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: sentinel:local
+
+services:
+  # --- EVM sandbox: the local Anvil node (Rule 3 broadcast target) -----------
+  anvil:
+    <<: *app-image
+    # ANVIL_FORK_URL (optional) is interpolated from ./.env at `up` time; when
+    # unset the fork flag vanishes and Anvil runs a fresh local chain.
+    command: ["sh", "-c", "anvil --host 0.0.0.0 --port 8545 ${ANVIL_FORK_URL:+--fork-url $ANVIL_FORK_URL}"]
+    ports:
+      # Operator-only, bound to host loopback (§15: ports exposed only to the
+      # demo operator). 8545 = Anvil RPC; 8088 = the web UI, which shares this
+      # netns (network_mode: service:anvil) so its port is published here.
+      - "127.0.0.1:8545:8545"
+      - "127.0.0.1:8088:8088"
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://127.0.0.1:8545"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # --- SimulationMCP: shares anvil's netns -> reaches it at 127.0.0.1 (Rule 3) -
+  simulation-mcp:
+    <<: *app-image
+    command: ["python", "-m", "sentinel.mcp_servers.simulation_mcp.server"]
+    network_mode: "service:anvil"
+    environment:
+      SENTINEL_MCP_TRANSPORT: streamable-http
+      SENTINEL_MCP_PORT: "8072"
+      ANVIL_HOST: "127.0.0.1"
+      ANVIL_PORT: "8545"
+    depends_on:
+      anvil:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8072), 3).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # --- CodebaseMCP: ordinary networked service (no Anvil dependency) ----------
+  codebase-mcp:
+    <<: *app-image
+    command: ["python", "-m", "sentinel.mcp_servers.codebase_mcp.server"]
+    environment:
+      SENTINEL_MCP_TRANSPORT: streamable-http
+      SENTINEL_MCP_PORT: "8070"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8070), 3).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # --- MemoryMCP: networked service with a persistent volume ------------------
+  memory-mcp:
+    <<: *app-image
+    command: ["python", "-m", "sentinel.mcp_servers.memory_mcp.server"]
+    environment:
+      SENTINEL_MCP_TRANSPORT: streamable-http
+      SENTINEL_MCP_PORT: "8071"
+      MEMORY_DB_PATH: /data/memory.db
+    volumes:
+      - memory-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8071), 3).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # --- Orchestrator: runs the end-to-end demo against the live Anvil ----------
+  #     Shares anvil's netns (loopback RPC, Rule 3). Uses in-process engines, so
+  #     it depends only on anvil — the MCP services run alongside as deployed
+  #     endpoints, not as the demo's dependencies. Runs once and exits 0.
+  orchestrator:
+    <<: *app-image
+    command: ["python", "-m", "demo.run_demo"]
+    network_mode: "service:anvil"
+    environment:
+      ANVIL_HOST: "127.0.0.1"
+      ANVIL_PORT: "8545"
+      MEMORY_DB_PATH: /app/data/memory.db
+    depends_on:
+      anvil:
+        condition: service_healthy
+    restart: "no"
+
+  # --- Web UI: the §18 War Room browser view (the one service meant to be opened)
+  #     Shares anvil's netns (loopback RPC, Rule 3) and serves the live audit
+  #     trace + browser-driven checkpoint. The port is published to host loopback
+  #     only (§15: exposed to the demo operator); the SSH tunnel to it is what the
+  #     Alibaba Cloud verification clip records.
+  web:
+    <<: *app-image
+    command: ["python", "-m", "demo.web_demo"]
+    network_mode: "service:anvil"
+    environment:
+      ANVIL_HOST: "127.0.0.1"
+      ANVIL_PORT: "8545"
+      MEMORY_DB_PATH: /app/data/web-memory.db
+      SENTINEL_WEB_HOST: "0.0.0.0"
+      SENTINEL_WEB_PORT: "8088"
+    depends_on:
+      anvil:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8088/healthz', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  memory-data:

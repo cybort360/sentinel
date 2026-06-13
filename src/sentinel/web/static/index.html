@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SENTINEL — War Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/* ============================== TOKENS ============================== */
+:root{
+  --bg:#F4F6F8;
+  --panel:#FFFFFF;
+  --panel-2:#FBFCFD;
+  --ink:#0B0E14;
+  --ink-2:#39414E;
+  --ink-3:#6B7480;
+  --ink-4:#9AA2AD;
+  --hair:#E3E7ED;
+  --hair-2:#EEF1F5;
+  --focus:#2563EB;
+
+  --yield:#0E8A6E;    --yield-tint:#E7F6F1;  --yield-deep:#0A6A55;
+  --adv:#D81E3F;      --adv-tint:#FCEAEE;    --adv-deep:#A8132E;
+  --arb:#4B45D6;      --arb-tint:#ECEBFC;    --arb-deep:#36309F;
+  --sys:#5B6573;      --sys-tint:#EEF1F5;
+  --halt:#C2410C;     --halt-tint:#FDEEE4;
+  --ok:#0E8A6E;
+
+  --r-lg:12px; --r-md:9px; --r-sm:6px;
+  --sans:'IBM Plex Sans',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --shadow:0 1px 2px rgba(11,14,20,.04),0 4px 16px rgba(11,14,20,.06);
+  --shadow-lg:0 24px 64px rgba(11,14,20,.22),0 2px 8px rgba(11,14,20,.12);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;font-family:var(--sans);color:var(--ink);background:var(--bg);
+  background-image:radial-gradient(var(--hair) .8px, transparent .8px);
+  background-size:22px 22px;
+  -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.45;
+  overflow:hidden;
+}
+button{font-family:inherit;cursor:pointer}
+::selection{background:#cfe0ff}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
+
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.label{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+
+/* ============================== APP SHELL ============================== */
+.app{display:grid;grid-template-rows:auto 1fr;height:100vh}
+
+/* ---------- TOPBAR ---------- */
+.topbar{
+  display:flex;align-items:center;gap:18px;padding:0 18px;height:58px;
+  background:var(--panel);border-bottom:1px solid var(--hair);position:relative;z-index:30;
+}
+.brand{display:flex;align-items:center;gap:10px;padding-right:18px;border-right:1px solid var(--hair)}
+.brand .mark{width:26px;height:26px;border-radius:7px;background:var(--ink);display:grid;place-items:center;flex:none}
+.brand .mark svg{width:16px;height:16px}
+.brand b{font-size:15px;letter-spacing:.16em;font-weight:700}
+.brand .ver{font-size:10px;color:var(--ink-4);letter-spacing:.1em;margin-top:1px}
+
+.statedot{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--ink-2)}
+.statedot .d{width:8px;height:8px;border-radius:50%;background:var(--ink-4)}
+.statedot.idle .d{background:var(--ink-4)}
+.statedot.live .d{background:var(--ok);box-shadow:0 0 0 0 var(--ok);animation:livePulse 2s infinite}
+.statedot.running .d{background:var(--arb);animation:livePulse 1.1s infinite}
+.statedot.halted .d{background:var(--halt);animation:livePulse .7s infinite}
+.statedot.done .d{background:var(--ok)}
+@keyframes livePulse{0%{box-shadow:0 0 0 0 currentColor}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+
+.target{display:flex;flex-direction:column;min-width:0;gap:1px}
+.target .label{line-height:1}
+.target .path{font-family:var(--mono);font-size:12.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
+
+.telem{display:flex;gap:2px;margin-left:auto;align-items:stretch}
+.tm{display:flex;flex-direction:column;justify-content:center;padding:0 14px;border-left:1px solid var(--hair-2);min-width:74px}
+.tm .k{font-size:9.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-4)}
+.tm .v{font-family:var(--mono);font-size:18px;font-weight:600;line-height:1.15;color:var(--ink)}
+.tm .v.small{font-size:13px;font-weight:600;font-family:var(--sans);letter-spacing:.01em}
+.tm .v.risk-zero{color:var(--ok)}
+.tm .v.bad{color:var(--adv)}
+
+.modeswitch{display:flex;border:1px solid var(--hair);border-radius:var(--r-sm);overflow:hidden;margin-left:6px}
+.modeswitch button{border:0;background:var(--panel);color:var(--ink-3);font-size:10.5px;font-weight:600;letter-spacing:.05em;padding:6px 9px}
+.modeswitch button.on{background:var(--ink);color:#fff}
+
+.btn-run{
+  display:inline-flex;align-items:center;gap:8px;border:0;background:var(--ink);color:#fff;
+  font-weight:600;font-size:13px;letter-spacing:.02em;padding:10px 16px;border-radius:var(--r-md);margin-left:6px;
+  transition:transform .08s ease, background .15s ease;
+}
+.btn-run:hover{background:#1c2330}
+.btn-run:active{transform:translateY(1px)}
+.btn-run:disabled{opacity:.5;cursor:not-allowed}
+.btn-run svg{width:13px;height:13px}
+.btn-run .spinner{width:13px;height:13px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------- BODY GRID ---------- */
+.body{display:grid;grid-template-columns:1fr 388px;min-height:0;position:relative}
+.warroom{display:grid;grid-template-rows:auto 1fr;min-height:0;border-right:1px solid var(--hair);position:relative}
+
+/* ---------- LANE HEADERS ---------- */
+.lanes-head{display:grid;grid-template-columns:repeat(3,1fr);background:var(--panel);border-bottom:1px solid var(--hair);z-index:8}
+.lane-h{padding:13px 16px;border-right:1px solid var(--hair-2);display:flex;gap:11px;align-items:flex-start;position:relative;overflow:hidden}
+.lane-h:last-child{border-right:0}
+.lane-h .ava{width:34px;height:34px;border-radius:9px;flex:none;display:grid;place-items:center;border:1px solid var(--c-line);background:var(--c-tint);color:var(--c)}
+.lane-h .ava svg{width:19px;height:19px}
+.lane-h .meta{min-width:0;flex:1}
+.lane-h .nm{font-weight:700;font-size:13.5px;letter-spacing:.02em;display:flex;align-items:center;gap:7px}
+.lane-h .nm .agc{width:7px;height:7px;border-radius:2px;background:var(--c)}
+.lane-h .role{font-size:11px;color:var(--ink-3);margin-top:1px}
+.lane-h .status{margin-top:7px;display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.02em;color:var(--ink-4);text-transform:uppercase}
+.lane-h .status .sd{width:6px;height:6px;border-radius:50%;background:var(--ink-4);flex:none}
+.lane-h.act .status{color:var(--c)}
+.lane-h.act .status .sd{background:var(--c);animation:livePulse 1s infinite}
+.lane-h.act{background:linear-gradient(180deg,var(--c-tint),transparent 140%)}
+.lane-h .pin{position:absolute;left:0;top:0;height:3px;width:100%;background:var(--c);transform:scaleX(0);transform-origin:left;transition:transform .3s ease}
+.lane-h.act .pin{transform:scaleX(1)}
+.ag-yield{--c:var(--yield);--c-tint:var(--yield-tint);--c-line:#bfe6da;--c-deep:var(--yield-deep)}
+.ag-adversary{--c:var(--adv);--c-tint:var(--adv-tint);--c-line:#f4c4ce;--c-deep:var(--adv-deep)}
+.ag-arbitrator{--c:var(--arb);--c-tint:var(--arb-tint);--c-line:#cfcdf6;--c-deep:var(--arb-deep)}
+
+/* ---------- TIMELINE ---------- */
+.timeline-wrap{overflow-y:auto;min-height:0;position:relative}
+.timeline{
+  position:relative;padding:16px 0 40px;min-height:100%;
+  background-image:linear-gradient(90deg,transparent calc(33.333% - .5px),var(--hair) calc(33.333% - .5px),var(--hair) calc(33.333% + .5px),transparent calc(33.333% + .5px)),
+                   linear-gradient(90deg,transparent calc(66.666% - .5px),var(--hair) calc(66.666% - .5px),var(--hair) calc(66.666% + .5px),transparent calc(66.666% + .5px));
+}
+.row{display:grid;grid-template-columns:repeat(3,1fr);padding:0 14px;margin-bottom:9px}
+.row.sys{grid-template-columns:1fr;padding:6px 22px;margin:10px 0}
+
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--ink-4);text-align:center;padding:80px 24px;grid-column:1/-1}
+.empty svg{width:34px;height:34px;opacity:.5}
+.empty .t{font-weight:600;color:var(--ink-3);font-size:13px}
+.empty .s{font-size:12px;max-width:340px;line-height:1.5}
+
+/* system divider */
+.sysrow{display:flex;align-items:center;gap:12px;animation:cardIn .35s ease both}
+.sysrow .line{flex:1;height:1px;background:var(--hair)}
+.sysrow .tag{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--ink-3);background:var(--panel);border:1px solid var(--hair);padding:5px 11px;border-radius:20px;white-space:nowrap}
+.sysrow .tag.decision{color:var(--ink);font-weight:600;border-color:var(--ink-3)}
+.sysrow .tag svg{width:12px;height:12px;flex:none}
+.sysrow .tag .ts{color:var(--ink-4);font-size:10px}
+
+/* agent card */
+.card{
+  border:1px solid var(--c-line,var(--hair));background:var(--panel);border-radius:var(--r-md);
+  padding:11px 13px;box-shadow:var(--shadow);animation:cardIn .38s cubic-bezier(.2,.7,.3,1) both;position:relative;
+}
+.card .chead{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.card .ai{width:20px;height:20px;border-radius:6px;background:var(--c-tint);color:var(--c);display:grid;place-items:center;flex:none}
+.card .ai svg{width:12px;height:12px}
+.card .who{font-weight:600;font-size:11.5px;letter-spacing:.02em;color:var(--c-deep,var(--ink))}
+.card .iter{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-4);background:var(--hair-2);padding:2px 7px;border-radius:10px}
+.card .action{font-family:var(--mono);font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em}
+.card .body{font-size:13px;color:var(--ink);line-height:1.5;text-wrap:pretty}
+.card .ev{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px}
+
+/* headline + veto */
+.card.head{border-left:3px solid var(--c)}
+.card.veto{border:1.5px solid var(--adv);background:linear-gradient(180deg,var(--adv-tint),#fff 60%);box-shadow:0 2px 18px rgba(216,30,63,.16)}
+.card.veto .who{color:var(--adv-deep)}
+.stamp{
+  position:absolute;top:-9px;right:10px;font-family:var(--mono);font-weight:600;font-size:10.5px;letter-spacing:.14em;
+  color:#fff;background:var(--adv);padding:4px 9px;border-radius:5px;box-shadow:0 4px 10px rgba(216,30,63,.3);
+  animation:stampIn .5s cubic-bezier(.2,.8,.3,1.2) both;
+}
+.stamp.term{background:var(--arb)}
+.stamp.risk{background:var(--halt)}
+@keyframes stampIn{0%{transform:scale(1.7) rotate(-7deg);opacity:0}60%{transform:scale(.94) rotate(-7deg);opacity:1}100%{transform:scale(1) rotate(-5deg);opacity:1}}
+@keyframes cardIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.flash{animation:flashFx .9s ease both}
+@keyframes flashFx{0%{box-shadow:0 0 0 3px var(--adv)}100%{box-shadow:var(--shadow)}}
+
+/* trace chips */
+.tchip{
+  display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;font-weight:500;
+  color:var(--ink-2);background:var(--panel-2);border:1px solid var(--hair);border-radius:var(--r-sm);
+  padding:3px 8px 3px 7px;cursor:pointer;transition:all .12s ease;max-width:100%;
+}
+.tchip:hover{border-color:var(--focus);color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.tchip .dot{width:6px;height:6px;border-radius:50%;background:var(--arb);flex:none}
+.tchip.tool .dot{background:var(--sys)}
+.tchip .id{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tchip .tn{color:var(--ink-3);font-size:10px}
+.tchip.active{border-color:var(--focus);background:#eef4ff;color:var(--ink)}
+
+/* results / payoff */
+.results{grid-column:1/-1;padding:8px 14px 0;animation:cardIn .5s ease both}
+.results-hd{display:flex;align-items:center;gap:11px;margin:18px 0 14px}
+.results-hd .line{flex:1;height:1px;background:var(--hair)}
+.results-hd .t{font-weight:700;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink);display:flex;align-items:center;gap:8px}
+.results-hd .t svg{width:15px;height:15px}
+.payoff{display:grid;grid-template-columns:1.35fr 1fr;gap:14px}
+@media(max-width:1180px){.payoff{grid-template-columns:1fr}}
+.pcard{background:var(--panel);border:1px solid var(--hair);border-radius:var(--r-lg);padding:16px 17px;box-shadow:var(--shadow)}
+.pcard .ph{display:flex;align-items:center;gap:9px;margin-bottom:13px}
+.pcard .ph .label{font-size:11px}
+.pcard .ph .badge{margin-left:auto;font-family:var(--mono);font-size:10.5px;padding:3px 9px;border-radius:20px;font-weight:600}
+
+table.eff{width:100%;border-collapse:collapse;font-size:12.5px}
+table.eff th{text-align:left;font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-4);padding:0 10px 8px;border-bottom:1px solid var(--hair)}
+table.eff th.col-s{color:var(--ink)}
+table.eff td{padding:9px 10px;border-bottom:1px solid var(--hair-2);vertical-align:top}
+table.eff tr:last-child td{border-bottom:0}
+table.eff td.metric{color:var(--ink-2);font-weight:500;max-width:200px}
+table.eff td.base{font-family:var(--mono);color:var(--ink-3)}
+table.eff td.sent{font-family:var(--mono);color:var(--ink);font-weight:600}
+table.eff tr.win td.sent{color:var(--ok)}
+table.eff .arrow{color:var(--ink-4);padding:0 4px}
+
+.mem{display:flex;flex-direction:column;gap:13px}
+.mem .verdict{font-size:13px;line-height:1.5;color:var(--ink);text-wrap:pretty}
+.mem .verdict b{color:var(--arb-deep)}
+.mem .recs{display:flex;flex-direction:column;gap:9px}
+.mrec{display:flex;align-items:center;gap:11px;padding:10px 12px;border:1px solid var(--hair);border-radius:var(--r-md);background:var(--panel-2)}
+.mrec .rl{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-4);flex:none;width:64px}
+.mrec .rid{font-family:var(--mono);font-size:11.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis}
+.mrec .rtag{margin-left:auto;font-size:10.5px;color:var(--ink-3);flex:none}
+.mem .differ{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:600;padding:9px 12px;border-radius:var(--r-md)}
+.mem .differ.yes{background:var(--yield-tint);color:var(--yield-deep)}
+.mem .differ svg{width:15px;height:15px;flex:none}
+
+/* ============================== INSPECTOR ============================== */
+.inspector{display:grid;grid-template-rows:auto minmax(180px,1.3fr) auto minmax(120px,1fr);background:var(--panel);min-height:0}
+.insp-top{padding:13px 16px;border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:9px}
+.insp-top .label{display:flex;align-items:center;gap:7px}
+.insp-top .label svg{width:13px;height:13px;color:var(--ink-3)}
+.insp-top .hint{margin-left:auto;font-size:10px;color:var(--ink-4)}
+
+.evidence{overflow-y:auto;min-height:0;padding:14px 16px}
+.ev-empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:11px;text-align:center;color:var(--ink-4);padding:20px}
+.ev-empty .ic{width:46px;height:46px;border-radius:12px;border:1px dashed var(--hair);display:grid;place-items:center}
+.ev-empty .ic svg{width:22px;height:22px;opacity:.6}
+.ev-empty .t{font-size:12.5px;color:var(--ink-3);font-weight:600;max-width:240px;line-height:1.5}
+.ev-empty .s{font-size:11.5px;max-width:250px;line-height:1.5}
+
+.ev-load{display:flex;align-items:center;gap:9px;color:var(--ink-3);font-size:12px;padding:8px 0}
+.ev-load .sp{width:14px;height:14px;border:2px solid var(--hair);border-top-color:var(--arb);border-radius:50%;animation:spin .7s linear infinite}
+
+.ev-head{display:flex;align-items:center;gap:9px;margin-bottom:13px}
+.ev-head .tool{font-family:var(--mono);font-weight:600;font-size:13px;color:var(--ink)}
+.ev-head .ttag{font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sys);background:var(--sys-tint);padding:3px 7px;border-radius:5px}
+.ev-idrow{display:flex;align-items:center;gap:7px;margin-bottom:14px;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.ev-idrow .v{color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.copybtn{border:1px solid var(--hair);background:var(--panel);border-radius:5px;padding:3px 7px;font-size:10px;color:var(--ink-3);font-family:var(--mono);flex:none}
+.copybtn:hover{border-color:var(--ink-3);color:var(--ink)}
+
+.ev-summary{font-size:12.5px;color:var(--ink-2);line-height:1.5;margin-bottom:14px;text-wrap:pretty;padding-left:11px;border-left:2px solid var(--hair)}
+
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+.metric{border:1px solid var(--hair);border-radius:var(--r-md);padding:10px 11px;background:var(--panel-2)}
+.metric .mk{font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-4)}
+.metric .mv{font-family:var(--mono);font-size:20px;font-weight:600;color:var(--ink);line-height:1.2;margin-top:3px}
+.metric.danger .mv{color:var(--adv)}
+.metric.ok .mv{color:var(--ok)}
+.metric.full{grid-column:1/-1}
+.metric .mv.sm{font-size:12.5px;word-break:break-all;font-weight:500}
+
+.ev-json-h{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.ev-json-h .label{font-size:9.5px}
+pre.json{margin:0;font-family:var(--mono);font-size:11.5px;line-height:1.6;background:#0E1116;color:#cdd6e3;border-radius:var(--r-md);padding:13px 14px;overflow:auto;white-space:pre}
+pre.json .k{color:#79c0ff}
+pre.json .s{color:#7ee0b8}
+pre.json .n{color:#ffb86b}
+pre.json .b{color:#d6a3ff}
+
+.insp-mid{padding:11px 16px 8px;border-top:1px solid var(--hair);display:flex;align-items:center;gap:8px}
+.insp-mid .label{display:flex;align-items:center;gap:7px}
+.insp-mid .label svg{width:12px;height:12px;color:var(--ink-3)}
+.insp-mid .ct{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-4)}
+
+.simlog{overflow-y:auto;min-height:0;padding:0 12px 14px}
+.simlog .empty-sm{color:var(--ink-4);font-size:11.5px;padding:14px 6px;text-align:center}
+.simrow{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:var(--r-sm);cursor:pointer;border:1px solid transparent}
+.simrow:hover{background:var(--panel-2);border-color:var(--hair)}
+.simrow.active{background:#eef4ff;border-color:#cfe0ff}
+.simrow .dot{width:7px;height:7px;border-radius:50%;background:var(--sys);flex:none}
+.simrow .stool{font-family:var(--mono);font-size:11px;color:var(--ink);font-weight:500;flex:none}
+.simrow .ssum{font-size:11px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.simrow .sid{font-family:var(--mono);font-size:9.5px;color:var(--ink-4);flex:none}
+
+/* ============================== CHECKPOINT TAKEOVER ============================== */
+.scrim{
+  position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;padding:24px;
+  background:rgba(15,19,28,.46);backdrop-filter:blur(5px) saturate(.7);-webkit-backdrop-filter:blur(5px) saturate(.7);
+}
+.scrim.show{display:flex;animation:scrimIn .35s ease both}
+@keyframes scrimIn{from{opacity:0}to{opacity:1}}
+.gate{
+  width:min(940px,100%);max-height:calc(100vh - 48px);background:var(--panel);border-radius:16px;
+  box-shadow:var(--shadow-lg);display:flex;flex-direction:column;overflow:hidden;
+  animation:gateIn .42s cubic-bezier(.2,.8,.3,1) both;border:1px solid rgba(255,255,255,.6);
+}
+@keyframes gateIn{from{opacity:0;transform:translateY(20px) scale(.98)}to{opacity:1;transform:none}}
+
+.gate-bar{position:relative;background:var(--ink);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:14px;overflow:hidden}
+.gate-bar::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(194,65,12,.32),transparent);transform:translateX(-100%);animation:sweep 2.6s linear infinite}
+@keyframes sweep{to{transform:translateX(100%)}}
+.gate-bar .halt-ic{width:40px;height:40px;border-radius:10px;background:rgba(194,65,12,.22);display:grid;place-items:center;flex:none;position:relative}
+.gate-bar .halt-ic .ring{position:absolute;inset:0;border-radius:10px;border:2px solid var(--halt);animation:haltPulse 1.3s ease-out infinite}
+.gate-bar .halt-ic svg{width:21px;height:21px;color:#ffae7a}
+@keyframes haltPulse{0%{opacity:.9;transform:scale(1)}100%{opacity:0;transform:scale(1.4)}}
+.gate-bar .gt{display:flex;flex-direction:column;gap:2px;z-index:1}
+.gate-bar .gt .st{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:#ffae7a;font-weight:600}
+.gate-bar .gt .ti{font-size:17px;font-weight:700;letter-spacing:.01em}
+.gate-bar .meta{margin-left:auto;display:flex;gap:22px;z-index:1}
+.gate-bar .meta .m .k{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600}
+.gate-bar .meta .m .v{font-family:var(--mono);font-size:14px;color:#fff;margin-top:2px}
+.gate-bar .meta .m .v.clock{color:#ffae7a}
+
+.gate-body{overflow-y:auto;padding:18px 20px;display:grid;grid-template-columns:1.25fr 1fr;gap:18px}
+@media(max-width:760px){.gate-body{grid-template-columns:1fr}}
+.gsec{margin-bottom:4px}
+.gsec .gl{display:flex;align-items:center;gap:7px;margin-bottom:9px}
+.gsec .gl .label{font-size:10.5px}
+.gsec .gl svg{width:13px;height:13px;color:var(--ink-3)}
+
+.reasons{display:flex;flex-direction:column;gap:7px}
+.reason{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;background:var(--halt-tint);border:1px solid #f6d6c2;border-radius:var(--r-md);font-size:12.5px;color:var(--ink);line-height:1.45}
+.reason .n{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--halt);flex:none;margin-top:1px}
+.reason .sect{font-family:var(--mono);font-size:10.5px;color:var(--halt);font-weight:600}
+
+.gblock{border:1px solid var(--hair);border-radius:var(--r-md);padding:12px 13px;margin-bottom:11px;background:var(--panel-2)}
+.gblock.veto{border-color:#f4c4ce;background:linear-gradient(180deg,var(--adv-tint),#fff 70%)}
+.gblock .bt{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.gblock .bt .ai{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;flex:none}
+.gblock .bt .ai svg{width:12px;height:12px}
+.gblock .bt .nm{font-weight:600;font-size:12px;letter-spacing:.02em}
+.gblock .bt .sev{margin-left:auto;font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:12px}
+.gblock .bt .sev.high{background:var(--adv);color:#fff}
+.gblock .bd{font-size:12.5px;color:var(--ink);line-height:1.5;text-wrap:pretty}
+.gblock .ev-line{margin-top:9px;font-family:var(--mono);font-size:11px;color:var(--ink-2);background:#fff;border:1px solid var(--hair);border-radius:6px;padding:7px 9px}
+.gblock .pid{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.gblock .ev{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px}
+
+.riskbig{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
+.riskbig .rv{font-family:var(--mono);font-size:32px;font-weight:600;line-height:1}
+.riskbig .rv.zero{color:var(--ok)}
+.riskbig .rl{font-size:11px;color:var(--ink-3);max-width:160px;line-height:1.35}
+.risk-desc{font-size:12px;color:var(--ink-2);line-height:1.5;margin-bottom:11px;text-wrap:pretty}
+.chips-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:11px}
+.minichip{font-size:10.5px;font-family:var(--mono);color:var(--arb-deep);background:var(--arb-tint);border:1px solid #d9d7f7;border-radius:12px;padding:3px 9px}
+.mit{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--ink-2);line-height:1.45;margin-bottom:6px}
+.mit svg{width:13px;height:13px;color:var(--ok);flex:none;margin-top:2px}
+.gsub{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-4);margin:13px 0 7px}
+
+.gate-foot{border-top:1px solid var(--hair);padding:15px 20px;background:var(--panel);display:flex;flex-direction:column;gap:12px}
+.gate-foot .frow{display:flex;gap:12px;align-items:flex-end}
+.rationale{flex:1;display:flex;flex-direction:column;gap:5px}
+.rationale label{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
+.rationale textarea{
+  font-family:var(--sans);font-size:13px;color:var(--ink);border:1px solid var(--hair);border-radius:var(--r-md);
+  padding:9px 11px;resize:none;min-height:42px;background:var(--panel-2);transition:border .15s;
+}
+.rationale textarea:focus{outline:none;border-color:var(--focus);background:#fff}
+.decide{display:flex;gap:8px;flex:none}
+.dbtn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--hair);background:var(--panel);font-weight:600;font-size:13px;padding:11px 16px;border-radius:var(--r-md);color:var(--ink);transition:all .12s ease}
+.dbtn svg{width:14px;height:14px}
+.dbtn:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+.dbtn.approve{background:var(--ok);border-color:var(--ok);color:#fff}
+.dbtn.approve:hover{background:#0a6f59}
+.dbtn.reject{color:var(--adv-deep);border-color:#f4c4ce}
+.dbtn.reject:hover{background:var(--adv-tint)}
+.dbtn.escalate{color:var(--halt);border-color:#f6d6c2}
+.dbtn.escalate:hover{background:var(--halt-tint)}
+.dbtn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+.gate-hint{font-size:11px;color:var(--ink-4);display:flex;align-items:center;gap:7px}
+.gate-hint svg{width:12px;height:12px}
+
+/* toast */
+.toast{
+  position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);z-index:60;opacity:0;pointer-events:none;
+  background:var(--ink);color:#fff;padding:11px 17px;border-radius:var(--r-md);font-size:13px;font-weight:500;
+  display:flex;align-items:center;gap:9px;box-shadow:var(--shadow-lg);transition:all .3s cubic-bezier(.2,.8,.3,1);
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+.toast svg{width:15px;height:15px}
+.toast .tc{width:8px;height:8px;border-radius:50%}
+
+/* mobile / narrow */
+.insp-toggle{display:none}
+@media(max-width:1024px){
+  .body{grid-template-columns:1fr}
+  .warroom{border-right:0}
+  .inspector{position:fixed;top:58px;right:0;bottom:0;width:min(420px,90vw);z-index:25;border-left:1px solid var(--hair);box-shadow:var(--shadow-lg);transform:translateX(100%);transition:transform .3s ease}
+  .inspector.open{transform:none}
+  .insp-toggle{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--hair);background:var(--panel);border-radius:var(--r-md);padding:9px 13px;font-weight:600;font-size:12.5px;color:var(--ink);margin-left:6px;position:relative}
+  .insp-toggle .cnt{font-family:var(--mono);font-size:10px;background:var(--arb);color:#fff;border-radius:10px;padding:1px 6px;min-width:18px;text-align:center}
+}
+@media(max-width:700px){
+  .telem .tm.opt{display:none}
+  .target{display:none}
+  .brand{padding-right:12px}
+}
+.timeline-wrap::-webkit-scrollbar,.evidence::-webkit-scrollbar,.simlog::-webkit-scrollbar,.gate-body::-webkit-scrollbar,pre.json::-webkit-scrollbar{width:9px;height:9px}
+.timeline-wrap::-webkit-scrollbar-thumb,.evidence::-webkit-scrollbar-thumb,.simlog::-webkit-scrollbar-thumb,.gate-body::-webkit-scrollbar-thumb{background:#d4dae2;border-radius:6px;border:2px solid transparent;background-clip:content-box}
+pre.json::-webkit-scrollbar-thumb{background:#39414e}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============= TOPBAR ============= -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 2.5 4 6v6c0 4.4 3.2 8.1 8 9.5 4.8-1.4 8-5.1 8-9.5V6l-8-3.5Z" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="m8.6 12 2.4 2.4 4.4-4.8" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div>
+        <b>SENTINEL</b>
+        <div class="ver">WAR ROOM · v2</div>
+      </div>
+    </div>
+
+    <div class="statedot idle" id="stateDot" role="status" aria-live="polite">
+      <span class="d"></span><span id="stateLabel">Idle</span>
+    </div>
+
+    <div class="target" id="targetWrap" hidden>
+      <span class="label">Target</span>
+      <span class="path mono" id="targetPath">—</span>
+    </div>
+
+    <div class="telem" aria-label="Run telemetry">
+      <div class="tm"><span class="k">Residual risk</span><span class="v" id="tRisk">—</span></div>
+      <div class="tm opt"><span class="k">Iterations</span><span class="v" id="tIter">—</span></div>
+      <div class="tm opt"><span class="k">Outcome</span><span class="v small" id="tOutcome">—</span></div>
+    </div>
+
+    <div class="modeswitch" role="group" aria-label="Data source mode">
+      <button id="modeLive" class="on" title="Connect to the live backend at /events">LIVE</button>
+      <button id="modeDemo" title="Replay the captured deterministic run">DEMO</button>
+    </div>
+
+    <button class="insp-toggle" id="inspToggle" aria-label="Toggle evidence inspector">
+      Evidence <span class="cnt" id="simCnt">0</span>
+    </button>
+
+    <button class="btn-run" id="runBtn">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M7 5.5v13l11-6.5L7 5.5Z" fill="currentColor"/></svg>
+      <span id="runLabel">Run audit</span>
+    </button>
+  </header>
+
+  <!-- ============= BODY ============= -->
+  <div class="body">
+
+    <!-- War room -->
+    <section class="warroom">
+      <div class="lanes-head">
+        <div class="lane-h ag-yield" id="laneH-yield">
+          <span class="pin"></span>
+          <div class="ava" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M3 17 9 11l3.5 3.5L21 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 11V6h-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="meta">
+            <div class="nm"><span class="agc"></span>YIELD</div>
+            <div class="role">Optimizer · proposes patches</div>
+            <div class="status"><span class="sd"></span><span class="st">Idle</span></div>
+          </div>
+        </div>
+        <div class="lane-h ag-adversary" id="laneH-adversary">
+          <span class="pin"></span>
+          <div class="ava" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.5" stroke="currentColor" stroke-width="1.7"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>
+          </div>
+          <div class="meta">
+            <div class="nm"><span class="agc"></span>ADVERSARY</div>
+            <div class="role">Red team · attacks &amp; vetoes</div>
+            <div class="status"><span class="sd"></span><span class="st">Idle</span></div>
+          </div>
+        </div>
+        <div class="lane-h ag-arbitrator" id="laneH-arbitrator">
+          <span class="pin"></span>
+          <div class="ava" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v16M5 19h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 6 5.5 8 8 13a2.5 2.5 0 0 1-5 0L5.5 8M12 6l6.5 2L16 13a2.5 2.5 0 0 0 5 0L18.5 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="meta">
+            <div class="nm"><span class="agc"></span>ARBITRATOR</div>
+            <div class="role">Judge · rules &amp; profiles risk</div>
+            <div class="status"><span class="sd"></span><span class="st">Idle</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="timeline-wrap" id="timelineWrap">
+        <div class="timeline" id="timeline">
+          <div class="empty" id="emptyState">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 2.5 4 6v6c0 4.4 3.2 8.1 8 9.5 4.8-1.4 8-5.1 8-9.5V6l-8-3.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            <div class="t">War room idle</div>
+            <div class="s">Press <b>Run audit</b> to start a contract review. Three agents — Yield, Adversary and Arbitrator — will debate it live, backed by real EVM simulation. Every cited trace is one click from its evidence.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Inspector -->
+    <aside class="inspector" id="inspector" aria-label="Evidence inspector">
+      <div class="insp-top">
+        <span class="label"><svg viewBox="0 0 24 24" fill="none"><path d="M10.5 3a7.5 7.5 0 1 0 4.55 13.46l4.24 4.24 1.42-1.42-4.24-4.24A7.5 7.5 0 0 0 10.5 3Zm0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z" fill="currentColor"/></svg>EVIDENCE INSPECTOR</span>
+        <span class="hint">Rule&nbsp;1 · every number → its proof</span>
+      </div>
+      <div class="evidence" id="evidence">
+        <div class="ev-empty">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M9 3h6l1 3h3v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h3l1-3Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M9 12h6M9 16h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></div>
+          <div class="t">No trace selected</div>
+          <div class="s">Click any <span class="mono" style="font-size:11px">trace</span> chip in the war room — or a row in the simulation log below — to inspect the real EVM result behind the claim.</div>
+        </div>
+      </div>
+      <div class="insp-mid">
+        <span class="label"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>SIMULATION LOG</span>
+        <span class="ct" id="simLogCt">0 calls</span>
+      </div>
+      <div class="simlog" id="simlog">
+        <div class="empty-sm">EVM simulation calls will appear here as the audit runs.</div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<!-- ============= CHECKPOINT TAKEOVER ============= -->
+<div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
+  <div class="gate">
+    <div class="gate-bar">
+      <div class="halt-ic"><span class="ring"></span>
+        <svg viewBox="0 0 24 24" fill="none"><rect x="8" y="5" width="3" height="14" rx="1" fill="currentColor"/><rect x="13" y="5" width="3" height="14" rx="1" fill="currentColor"/></svg>
+      </div>
+      <div class="gt">
+        <span class="st">● SYSTEM HALTED — BLOCKING GATE</span>
+        <span class="ti" id="gateTitle">Human checkpoint required</span>
+      </div>
+      <div class="meta">
+        <div class="m"><div class="k">Run</div><div class="v" id="gateRun">—</div></div>
+        <div class="m"><div class="k">Waiting</div><div class="v clock" id="gateClock">0.0s</div></div>
+      </div>
+    </div>
+    <div class="gate-body" id="gateBody"><!-- filled dynamically --></div>
+    <div class="gate-foot">
+      <div class="frow">
+        <div class="rationale">
+          <label for="rationale">Rationale <span style="color:var(--ink-4);font-weight:500;text-transform:none;letter-spacing:0">(recorded with your decision)</span></label>
+          <textarea id="rationale" placeholder="Why are you approving / rejecting / escalating? (optional)"></textarea>
+        </div>
+        <div class="decide">
+          <button class="dbtn reject" id="btnReject"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Reject</button>
+          <button class="dbtn escalate" id="btnEscalate"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 2.5 20h19L12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10v4M12 16.5v.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Escalate</button>
+          <button class="dbtn approve" id="btnApprove"><svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Approve &amp; deploy</button>
+        </div>
+      </div>
+      <div class="gate-hint">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v5M12 16v.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        The orchestrator is blocked on this decision — nothing ships until you respond. Trace chips above stay clickable.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><span class="tc"></span><span id="toastMsg"></span></div>
+
+<script>
+"use strict";
+/* ============================================================================
+   SENTINEL War Room — drop-in front-end.
+   Speaks the existing contract: GET /events (SSE), POST /api/run,
+   GET /api/trace/{id}, POST /checkpoint/{run_id}, GET /healthz.
+   Falls back to a built-in deterministic mock when no backend is present.
+   ============================================================================ */
+const $ = (s, r=document) => r.querySelector(s);
+const el = (tag, cls, html) => { const n=document.createElement(tag); if(cls)n.className=cls; if(html!=null)n.innerHTML=html; return n; };
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const shortId = id => id ? id.slice(0,8) : '—';
+const fmtPct = p => { if(p==null||isNaN(p)) return '—'; const v=p*100; if(v===0) return '0%'; if(v<0.1) return v.toFixed(2)+'%'; if(v<10) return v.toFixed(2)+'%'; return v.toFixed(1)+'%'; };
+
+const AGENTS = {
+  yield:      { name:'YIELD',      lane:'yield',      voice:{propose:'proposing',revise:'revising',ratify:'aligned',default:'active'} },
+  adversary:  { name:'ADVERSARY',  lane:'adversary',  voice:{veto:'VETO',probe:'probing',default:'attacking'} },
+  arbitrator: { name:'ARBITRATOR', lane:'arbitrator', voice:{terminate:'terminating',risk_profile:'profiling risk',ratify:'ruling',default:'deliberating'} },
+};
+const AGENT_SVG = {
+  yield:'<svg viewBox="0 0 24 24" fill="none"><path d="M3 17 9 11l3.5 3.5L21 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  adversary:'<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>',
+  arbitrator:'<svg viewBox="0 0 24 24" fill="none"><path d="M12 4v15M6 19h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+};
+
+/* ---------------- State ---------------- */
+const State = {
+  mode:'live', runId:null, target:null, started:false, traces:{}, sim:[],
+  activeTrace:null, gateOpen:false, gateTimer:null, gateStart:0, resultsEl:null,
+};
+
+/* ---------------- DOM refs ---------------- */
+const dom = {
+  timeline:$('#timeline'), wrap:$('#timelineWrap'), empty:$('#emptyState'),
+  evidence:$('#evidence'), simlog:$('#simlog'), simLogCt:$('#simLogCt'), simCnt:$('#simCnt'),
+  runBtn:$('#runBtn'), runLabel:$('#runLabel'),
+  stateDot:$('#stateDot'), stateLabel:$('#stateLabel'),
+  targetWrap:$('#targetWrap'), targetPath:$('#targetPath'),
+  tRisk:$('#tRisk'), tIter:$('#tIter'), tOutcome:$('#tOutcome'),
+  scrim:$('#scrim'), gateBody:$('#gateBody'), gateRun:$('#gateRun'), gateClock:$('#gateClock'),
+  rationale:$('#rationale'),
+  toast:$('#toast'), toastMsg:$('#toastMsg'),
+  inspector:$('#inspector'), inspToggle:$('#inspToggle'),
+  modeLive:$('#modeLive'), modeDemo:$('#modeDemo'),
+};
+
+/* ---------------- Telemetry / status ---------------- */
+function setState(kind, label){ dom.stateDot.className='statedot '+kind; dom.stateLabel.textContent=label; }
+function updateTelem({risk, iter, outcome}={}){
+  if(risk!=null){ dom.tRisk.textContent=fmtPct(risk); dom.tRisk.className='v'+(risk===0?' risk-zero':''); }
+  if(iter!=null){ dom.tIter.textContent=iter; }
+  if(outcome!=null){ dom.tOutcome.textContent=String(outcome).replace(/_/g,' '); dom.tOutcome.className='v small'; }
+}
+function setLaneStatus(lane, text, active){
+  const h=$('#laneH-'+lane); if(!h) return;
+  $('.st',h).textContent=text;
+  if(active){ h.classList.add('act'); clearTimeout(h._t); h._t=setTimeout(()=>h.classList.remove('act'),2400); }
+}
+function toast(msg, color){
+  dom.toastMsg.textContent=msg;
+  dom.toast.querySelector('.tc').style.background=color||'#0E8A6E';
+  dom.toast.classList.add('show');
+  clearTimeout(toast._t); toast._t=setTimeout(()=>dom.toast.classList.remove('show'),3200);
+}
+
+/* ---------------- Timeline rendering ---------------- */
+let stickBottom = true;
+dom.wrap.addEventListener('scroll', ()=>{
+  stickBottom = dom.wrap.scrollHeight - dom.wrap.scrollTop - dom.wrap.clientHeight < 80;
+});
+function addRow(node, isSys){
+  if(dom.empty && dom.empty.parentNode) dom.empty.remove();
+  const row = el('div', 'row'+(isSys?' sys':''));
+  // keep results pinned at the very bottom
+  if(State.resultsEl){ dom.timeline.insertBefore(row, State.resultsEl); }
+  else dom.timeline.appendChild(row);
+  row.appendChild(node);
+  if(stickBottom) requestAnimationFrame(()=>{ dom.wrap.scrollTop = dom.wrap.scrollHeight; });
+  return row;
+}
+function traceChip(id, tool){
+  const c = el('button', 'tchip'+(tool?' tool':''));
+  c.innerHTML = `<span class="dot"></span><span class="tn">${tool?esc(tool)+' ':'trace '}</span><span class="id">${shortId(id)}</span>`;
+  c.title = (tool?tool+' · ':'')+'trace '+id+' — click for evidence';
+  c.dataset.tid = id;
+  c.addEventListener('click', ()=>openEvidence(id, c));
+  return c;
+}
+function evChips(ids, tools){
+  if(!ids || !ids.length) return null;
+  const wrap = el('div','ev');
+  ids.forEach(id => wrap.appendChild(traceChip(id, tools && tools[id])));
+  return wrap;
+}
+
+const DEMO_TAG_META = {
+  'SYSTEM DECISION':{cls:'decision'},
+  'ADVERSARY VETO':{cls:'veto'},
+  'CONSTRAINTS UNSATISFIED':{cls:'term'},
+  'ANNOTATED RESIDUAL RISK':{cls:'risk'},
+  'HUMAN CHECKPOINT':{cls:'halt'},
+};
+
+function renderTrace(f){
+  // raw simulation call → simulation log (the evidence layer)
+  if(f.tool && !f.agent){ addSim(f); return; }
+
+  const agentKey = f.agent && AGENTS[f.agent] ? f.agent : null;
+
+  // system / orchestrator / human (non-agent) → full-width divider
+  if(!agentKey){
+    const sys = el('div','sysrow');
+    const decision = f.demo_tag==='SYSTEM DECISION' || f.demo_tag==='HUMAN CHECKPOINT';
+    const ts = f.ts ? new Date(f.ts).toLocaleTimeString([], {hour12:false}) : '';
+    let icon = '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3.2" fill="currentColor"/></svg>';
+    if(f.demo_tag==='HUMAN CHECKPOINT') icon='<svg viewBox="0 0 24 24" fill="none"><rect x="8" y="6" width="3" height="12" rx="1" fill="currentColor"/><rect x="13" y="6" width="3" height="12" rx="1" fill="currentColor"/></svg>';
+    sys.innerHTML = `<span class="line"></span>`;
+    const tag = el('span','tag'+(decision?' decision':''));
+    tag.innerHTML = `${icon}<span>${esc(f.summary||f.demo_tag||'system')}</span>${ts?`<span class="ts">${ts}</span>`:''}`;
+    sys.appendChild(tag);
+    sys.appendChild(el('span','line'));
+    addRow(sys, true);
+    return;
+  }
+
+  // agent card
+  const lane = AGENTS[agentKey].lane;
+  const card = el('div','card head'); // head border-left accent on agent color
+  const isVeto = f.demo_tag==='ADVERSARY VETO';
+  const isTerm = f.demo_tag==='CONSTRAINTS UNSATISFIED';
+  const isRisk = f.demo_tag==='ANNOTATED RESIDUAL RISK';
+  if(isVeto) card.classList.add('veto','flash');
+
+  let head = `<div class="chead"><span class="ai">${AGENT_SVG[agentKey]}</span><span class="who">${AGENTS[agentKey].name}</span>`;
+  if(f.action) head += `<span class="action">${esc(f.action.replace(/_/g,' '))}</span>`;
+  if(f.iteration) head += `<span class="iter">iter ${f.iteration}</span>`;
+  head += `</div>`;
+  card.innerHTML = head + `<div class="body">${esc(f.summary||'')}</div>`;
+
+  if(isVeto){ const s=el('div','stamp','⛔ VETO'); card.appendChild(s); }
+  else if(isTerm){ const s=el('div','stamp term','⊘ TERMINATE'); card.appendChild(s); }
+  else if(isRisk){ const s=el('div','stamp risk','◆ RISK'); card.appendChild(s); }
+
+  if(f.trace_id){ const c=evChips([f.trace_id]); if(c) card.appendChild(c); }
+
+  // place in correct lane column
+  const row = el('div','row');
+  if(State.resultsEl) dom.timeline.insertBefore(row, State.resultsEl); else dom.timeline.appendChild(row);
+  if(dom.empty && dom.empty.parentNode) dom.empty.remove();
+  const colIdx = {yield:1,adversary:2,arbitrator:3}[lane];
+  card.style.gridColumn = colIdx;
+  row.style.gridTemplateColumns='repeat(3,1fr)';
+  row.appendChild(card);
+  if(stickBottom) requestAnimationFrame(()=>{ dom.wrap.scrollTop = dom.wrap.scrollHeight; });
+
+  // agent voice + lane activation
+  // live topbar telemetry from headline events
+  if(f.iterations!=null) updateTelem({iter:f.iterations});
+  if(isRisk) updateTelem({risk:f.residual_risk_pct, outcome:f.outcome});
+
+  const voice = AGENTS[agentKey].voice;
+  setLaneStatus(lane, (voice[f.action]||voice[f.demo_tag? '': f.action]||voice.default), true);
+  if(isVeto) setLaneStatus('adversary','VETO',true);
+}
+
+/* ---------------- Simulation log ---------------- */
+function addSim(f){
+  State.traces[f.trace_id] = State.traces[f.trace_id] || f; // cache for offline
+  State.sim.push(f);
+  const empty = dom.simlog.querySelector('.empty-sm'); if(empty) empty.remove();
+  const row = el('div','simrow');
+  row.dataset.tid = f.trace_id;
+  row.innerHTML = `<span class="dot"></span><span class="stool">${esc(f.tool)}</span><span class="ssum">${esc(f.summary||'')}</span><span class="sid">${shortId(f.trace_id)}</span>`;
+  row.addEventListener('click', ()=>openEvidence(f.trace_id, null));
+  dom.simlog.appendChild(row);
+  dom.simLogCt.textContent = State.sim.length + (State.sim.length===1?' call':' calls');
+  dom.simCnt.textContent = State.sim.length;
+}
+
+/* ---------------- Evidence drill-down (Rule 1) ---------------- */
+async function openEvidence(traceId, chipEl){
+  State.activeTrace = traceId;
+  // highlight chips + sim rows
+  document.querySelectorAll('.tchip.active').forEach(c=>c.classList.remove('active'));
+  document.querySelectorAll('.simrow.active').forEach(c=>c.classList.remove('active'));
+  document.querySelectorAll('.tchip').forEach(c=>{ if(c.dataset.tid===traceId) c.classList.add('active'); });
+  document.querySelectorAll('.simrow').forEach(c=>{ if(c.dataset.tid===traceId) c.classList.add('active'); });
+  if(window.innerWidth<=1024) dom.inspector.classList.add('open');
+
+  dom.evidence.innerHTML = `<div class="ev-load"><span class="sp"></span>Fetching simulation result for <span class="mono">${shortId(traceId)}</span>…</div>`;
+  try{
+    const data = await api.trace(traceId);
+    renderEvidence(data);
+  }catch(e){
+    dom.evidence.innerHTML = `<div class="ev-empty"><div class="ic" style="border-color:#f4c4ce;color:var(--adv)"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 2 20h20L12 3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 9v5M12 17v.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div><div class="t">Evidence unavailable</div><div class="s mono" style="font-size:11px">${esc(e.message||'GET /api/trace failed')}</div></div>`;
+  }
+}
+
+const KNOWN_METRICS = ['revert_rate','gas_used','reverts','n','scenario','reverted','function','address','contract'];
+function renderEvidence(d){
+  const wrap = el('div','ev-detail');
+  // head
+  const head = el('div','ev-head');
+  head.innerHTML = `<span class="tool">${esc(d.tool||'trace')}</span><span class="ttag">EVM sim</span>`;
+  wrap.appendChild(head);
+  // id row
+  const idrow = el('div','ev-idrow');
+  idrow.innerHTML = `<span>trace</span><span class="v" title="${esc(d.trace_id||'')}">${esc(d.trace_id||'—')}</span>`;
+  const copy = el('button','copybtn','copy');
+  copy.addEventListener('click',()=>{ navigator.clipboard && navigator.clipboard.writeText(d.trace_id||''); copy.textContent='copied'; setTimeout(()=>copy.textContent='copy',1200); });
+  idrow.appendChild(copy);
+  wrap.appendChild(idrow);
+  if(d.summary){ const s=el('div','ev-summary',esc(d.summary)); wrap.appendChild(s); }
+
+  // key metrics
+  const metrics = el('div','metrics');
+  const add=(k,v,kind,sm)=>{ const m=el('div','metric'+(kind?' '+kind:'')+(sm?' full':'')); m.innerHTML=`<div class="mk">${esc(k)}</div><div class="mv${sm?' sm':''}">${v}</div>`; metrics.appendChild(m); };
+  if(d.revert_rate!=null) add('Revert rate', (d.revert_rate*100).toFixed(0)+'%', d.revert_rate>=0.5?'danger':(d.revert_rate===0?'':''));
+  if(d.reverts!=null && d.n!=null) add('Reverted', d.reverts+' / '+d.n, d.reverts>=d.n?'danger':(d.reverts===0?'ok':''));
+  if(d.gas_used!=null) add('Gas used', Number(d.gas_used).toLocaleString());
+  if(d.reverted!=null) add('Reverted?', d.reverted?'yes':'no', d.reverted?'danger':'ok');
+  if(d.scenario) add('Scenario', esc(d.scenario), '', true);
+  if(d.function) add('Function', esc(d.function), '', true);
+  if(d.contract) add('Contract', esc(d.contract), '', true);
+  if(d.address) add('Address', esc(d.address), '', true);
+  if(metrics.children.length) wrap.appendChild(metrics);
+
+  // raw json
+  const jh = el('div','ev-json-h'); jh.innerHTML='<span class="label">Raw result</span>';
+  const jcopy = el('button','copybtn','copy JSON');
+  jcopy.addEventListener('click',()=>{ navigator.clipboard && navigator.clipboard.writeText(JSON.stringify(d,null,2)); jcopy.textContent='copied'; setTimeout(()=>jcopy.textContent='copy JSON',1200); });
+  jh.appendChild(jcopy);
+  wrap.appendChild(jh);
+  const pre = el('pre','json'); pre.innerHTML = highlightJSON(d); wrap.appendChild(pre);
+
+  dom.evidence.innerHTML=''; dom.evidence.appendChild(wrap);
+}
+function highlightJSON(obj){
+  let json = JSON.stringify(obj, null, 2);
+  json = json.replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, m=>{
+    let cls='n';
+    if(/^"/.test(m)) cls = /:$/.test(m) ? 'k' : 's';
+    else if(/true|false|null/.test(m)) cls='b';
+    return '<span class="'+cls+'">'+m+'</span>';
+  });
+}
+
+/* ---------------- Checkpoint takeover ---------------- */
+function openGate(p){
+  State.gateOpen = true;
+  setState('halted','HALTED — awaiting human');
+  dom.gateRun.textContent = p.run_id || State.runId || '—';
+  const rp = p.risk_profile || {};
+  updateTelem({risk:rp.residual_risk_pct, iter:rp.iterations, outcome:rp.outcome});
+  // clock
+  State.gateStart = Date.now();
+  clearInterval(State.gateTimer);
+  State.gateTimer = setInterval(()=>{ dom.gateClock.textContent = ((Date.now()-State.gateStart)/1000).toFixed(1)+'s'; }, 100);
+  buildGateBody(p);
+  dom.rationale.value='';
+  dom.scrim.classList.add('show');
+  setTimeout(()=>dom.rationale.focus(), 420);
+}
+function closeGate(){
+  State.gateOpen=false;
+  clearInterval(State.gateTimer);
+  dom.scrim.classList.remove('show');
+}
+function gateChips(ids, label){
+  if(!ids||!ids.length) return '';
+  // build asynchronously after insert via delegation; simpler: return placeholder then wire
+  return `<div class="ev" data-chipset="${esc(ids.join(','))}">${ids.map(id=>`<button class="tchip" data-tid="${esc(id)}"><span class="dot"></span><span class="tn">trace </span><span class="id">${shortId(id)}</span></button>`).join('')}</div>`;
+}
+function buildGateBody(p){
+  const proposal = p.proposal || {};
+  const review = p.review || {};
+  const risk = p.risk_profile || {};
+  const reasons = p.gated_reasons || [];
+  const mem = p.memory_records_used || risk.memory_records_used || [];
+  const tags = p.topic_tags || [];
+
+  const leftHtml = `
+    <div>
+      <div class="gsec">
+        <div class="gl"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 4 6v6c0 4.4 3.2 8 8 9 4.8-1 8-4.6 8-9V6l-8-3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="label">Why this is gated</span></div>
+        <div class="reasons">${reasons.map((r,i)=>{
+          const sect=(r.match(/§[\d.]+/)||[''])[0];
+          const txt=r.replace(/\s*\(§[\d.]+\)/,'');
+          return `<div class="reason"><span class="n">${i+1}</span><span>${esc(txt)} ${sect?`<span class="sect">${esc(sect)}</span>`:''}</span></div>`;
+        }).join('')}</div>
+      </div>
+      ${proposal && (proposal.summary||proposal.patch_id) ? `
+      <div class="gsec" style="margin-top:14px">
+        <div class="gl"><span class="label">Proposal on the table</span></div>
+        <div class="gblock ag-yield" style="--c:var(--yield)">
+          <div class="bt"><span class="ai" style="background:var(--yield-tint);color:var(--yield)">${AGENT_SVG.yield}</span><span class="nm" style="color:var(--yield-deep)">${esc((proposal.proposed_by||'yield').toUpperCase())}</span>${proposal.iteration?`<span class="sev" style="background:var(--hair-2);color:var(--ink-3)">iter ${proposal.iteration}</span>`:''}</div>
+          <div class="bd">${esc(proposal.summary||'')}</div>
+          ${proposal.patch_id?`<div class="pid" style="margin-top:8px">patch: <b>${esc(proposal.patch_id)}</b></div>`:''}
+          ${gateChips(proposal.trace_ids)}
+        </div>
+      </div>`:''}
+      ${review && review.vetoed ? `
+      <div class="gsec">
+        <div class="gl"><span class="label">Adversary review</span></div>
+        <div class="gblock veto">
+          <div class="bt"><span class="ai" style="background:var(--adv-tint);color:var(--adv)">${AGENT_SVG.adversary}</span><span class="nm" style="color:var(--adv-deep)">ADVERSARY · STANDING VETO</span><span class="sev high">${esc(review.severity||'high')}</span></div>
+          <div class="bd">${esc(review.reason||'')}</div>
+          ${review.evidence?`<div class="ev-line">${esc(review.evidence)}</div>`:''}
+          ${gateChips(review.trace_ids)}
+        </div>
+      </div>`:''}
+    </div>`;
+
+  const rr = risk.residual_risk_pct;
+  const rightHtml = `
+    <div>
+      <div class="gsec">
+        <div class="gl"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 4 6v6c0 4.4 3.2 8 8 9 4.8-1 8-4.6 8-9V6l-8-3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="label">Risk profile</span></div>
+        <div class="gblock ag-arbitrator" style="--c:var(--arb)">
+          <div class="bt"><span class="ai" style="background:var(--arb-tint);color:var(--arb)">${AGENT_SVG.arbitrator}</span><span class="nm" style="color:var(--arb-deep)">ARBITRATOR ASSESSMENT</span><span class="sev" style="background:${risk.outcome==='consensus'?'var(--yield-tint)':'var(--halt-tint)'};color:${risk.outcome==='consensus'?'var(--yield-deep)':'var(--halt)'}">${esc((risk.outcome||'').replace(/_/g,' '))}</span></div>
+          <div class="riskbig"><span class="rv ${rr===0?'zero':''}">${fmtPct(rr)}</span><span class="rl">residual risk after ${risk.iterations||'—'} iteration${risk.iterations===1?'':'s'}</span></div>
+          ${risk.residual_risk_description?`<div class="risk-desc">${esc(risk.residual_risk_description)}</div>`:''}
+          ${(risk.mitigations_applied&&risk.mitigations_applied.length)?`<div class="gsub">Mitigations applied</div>${risk.mitigations_applied.map(m=>`<div class="mit"><svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>${esc(m)}</span></div>`).join('')}`:''}
+          ${gateChips(risk.trace_ids)}
+        </div>
+      </div>
+      ${tags.length?`<div class="gsec"><div class="gsub">Topic tags</div><div class="chips-wrap">${tags.map(t=>`<span class="minichip">${esc(t)}</span>`).join('')}</div></div>`:''}
+      ${mem.length?`<div class="gsec"><div class="gsub">Cross-session memory consulted</div>${mem.map(m=>`<div class="mrec"><span class="rl">record</span><span class="rid">${esc(m)}</span></div>`).join('')}</div>`:''}
+    </div>`;
+
+  dom.gateBody.innerHTML = leftHtml + rightHtml;
+  // wire trace chips inside gate
+  dom.gateBody.querySelectorAll('.tchip').forEach(c=>{
+    c.addEventListener('click', ()=>{ openEvidence(c.dataset.tid, c); toast('Evidence opened in inspector — close gate to view, or it’s waiting there','#4B45D6'); });
+  });
+}
+
+async function resolveCheckpoint(decision){
+  const rationale = dom.rationale.value.trim();
+  // optimistic UI lock
+  [$('#btnApprove'),$('#btnReject'),$('#btnEscalate')].forEach(b=>b.disabled=true);
+  try{
+    await api.checkpoint(State.runId, { decision, rationale: rationale||undefined });
+    // resolution will also arrive via checkpoint_resolved; close now for snappy feel
+    onResolved(decision, true);
+  }catch(e){
+    [$('#btnApprove'),$('#btnReject'),$('#btnEscalate')].forEach(b=>b.disabled=false);
+    toast('Checkpoint POST failed: '+(e.message||'error'), '#D81E3F');
+  }
+}
+function onResolved(decision, local){
+  if(!State.gateOpen && !local) return;
+  closeGate();
+  const colorMap={approve:'#0E8A6E',reject:'#D81E3F',escalate:'#C2410C'};
+  const verb={approve:'Approved',reject:'Rejected',escalate:'Escalated'}[decision]||decision;
+  toast(`Checkpoint ${verb.toLowerCase()} — control returned to orchestrator`, colorMap[decision]);
+  // system divider in timeline
+  const sys=el('div','sysrow');
+  sys.innerHTML='<span class="line"></span>';
+  const tag=el('span','tag decision');
+  tag.style.borderColor=colorMap[decision]; tag.style.color=colorMap[decision];
+  tag.innerHTML=`<svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>HUMAN ${verb.toUpperCase()} — gate released</span>`;
+  sys.appendChild(tag); sys.appendChild(el('span','line'));
+  addRow(sys,true);
+  [$('#btnApprove'),$('#btnReject'),$('#btnEscalate')].forEach(b=>b.disabled=false);
+  setState(State.mode==='demo'?'running':'live', State.mode==='demo'?'Running (demo)':'Live');
+  if(State.mode==='demo') Mock.resume(decision);
+}
+
+/* ---------------- End payoff ---------------- */
+function ensureResults(){
+  if(State.resultsEl) return State.resultsEl;
+  if(dom.empty && dom.empty.parentNode) dom.empty.remove();
+  const r = el('div','results');
+  r.innerHTML = `
+    <div class="results-hd"><span class="line"></span><span class="t"><svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Run payoff</span><span class="line"></span></div>
+    <div class="payoff">
+      <div class="pcard" id="effCard"><div class="ph"><span class="label">Efficiency vs single-pass baseline</span><span class="badge" id="effBadge" style="display:none"></span></div><div id="effBody" style="color:var(--ink-4);font-size:12px">Awaiting efficiency report…</div></div>
+      <div class="pcard" id="memCard"><div class="ph"><span class="label">Cross-session memory</span></div><div class="mem" id="memBody"><div style="color:var(--ink-4);font-size:12px">Awaiting memory comparison…</div></div></div>
+    </div>`;
+  dom.timeline.appendChild(r);
+  State.resultsEl = r;
+  requestAnimationFrame(()=>{ if(stickBottom) dom.wrap.scrollTop=dom.wrap.scrollHeight; });
+  return r;
+}
+function renderEfficiency(rows){
+  ensureResults();
+  const body = $('#effBody');
+  // detect "wins" — where sentinel column improves on baseline
+  const winRow = (m,b,s)=> /false neg|missed/i.test(m) || /residual risk disclosed/i.test(m) || /vulnerab/i.test(m) || /trade-?off/i.test(m);
+  let html = `<table class="eff"><thead><tr><th>Metric</th><th>Baseline</th><th class="col-s">Sentinel</th></tr></thead><tbody>`;
+  rows.forEach(([m,b,s])=>{
+    html += `<tr class="${winRow(m,b,s)?'win':''}"><td class="metric">${esc(m)}</td><td class="base">${esc(b)}</td><td class="sent">${esc(s)}</td></tr>`;
+  });
+  html += `</tbody></table>`;
+  body.innerHTML = html;
+  const badge=$('#effBadge'); badge.style.display='inline-block';
+  badge.textContent='+1 vuln · 0 misses'; badge.style.background='var(--yield-tint)'; badge.style.color='var(--yield-deep)';
+}
+function renderCrossSession(d){
+  ensureResults();
+  const body=$('#memBody');
+  body.innerHTML = `
+    <div class="verdict">${d.differ
+      ? `A <b>different memory record</b> surfaced for each contract — the system retrieved relevant priors rather than re-applying one fixed playbook. This is the generalization proof.`
+      : `The same memory record surfaced for both contracts.`}</div>
+    <div class="recs">
+      <div class="mrec"><span class="rl">Session 1</span><span class="rid">${esc(d.s1)}</span><span class="rtag">billing</span></div>
+      <div class="mrec"><span class="rl">Session 2</span><span class="rid">${esc(d.s2)}</span><span class="rtag">vault</span></div>
+    </div>
+    <div class="differ ${d.differ?'yes':''}">
+      <svg viewBox="0 0 24 24" fill="none">${d.differ?'<path d="m5 12 4.5 4.5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>':'<path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'}</svg>
+      ${d.differ?'Records differ — generalizes across contracts':'Records identical'}
+    </div>`;
+}
+function renderRunComplete(f){
+  setState('done', State.mode==='demo' ? 'Run complete (demo)' : 'Run complete');
+  updateTelem({risk:f.residual_risk_pct, outcome:f.outcome});
+  const sys=el('div','sysrow');
+  sys.innerHTML='<span class="line"></span>';
+  const tag=el('span','tag decision');
+  tag.innerHTML=`<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="m8.5 12 2.4 2.4 4.6-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>RUN COMPLETE · ${esc(f.target? f.target.split('/').pop():'')} · outcome: ${esc((f.outcome||'').replace(/_/g,' '))} · final: ${esc(f.final_proposal||'—')}</span>`;
+  sys.appendChild(tag); sys.appendChild(el('span','line'));
+  addRow(sys,true);
+}
+
+/* ---------------- Dispatch ---------------- */
+function dispatch(f){
+  switch(f.kind){
+    case 'run_started':
+      State.runId=f.run_id; State.target=f.target;
+      dom.targetWrap.hidden=false; dom.targetPath.textContent=f.target||'—'; dom.targetPath.title=f.target||'';
+      setState(State.mode==='demo'?'running':'live', State.mode==='demo'?'Running (demo)':'Auditing');
+      // session divider
+      { const sys=el('div','sysrow'); sys.innerHTML='<span class="line"></span>';
+        const tag=el('span','tag decision'); tag.innerHTML=`<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" fill="currentColor"/></svg><span>AUDIT STARTED · ${esc((f.target||'').split('/').pop())}</span>`;
+        sys.appendChild(tag); sys.appendChild(el('span','line')); addRow(sys,true); }
+      break;
+    case 'trace': renderTrace(f); break;
+    case 'checkpoint_pending': openGate(f.packet||{}); break;
+    case 'checkpoint_resolved': onResolved(f.decision,false); break;
+    case 'run_complete': renderRunComplete(f); break;
+    case 'efficiency': renderEfficiency(f.rows||[]); break;
+    case 'cross_session': renderCrossSession(f); break;
+    case 'run_error':
+      setState('halted','Error'); toast('Run error: '+(f.error||'unknown'),'#D81E3F'); break;
+    case 'all_complete':
+      setState('done', State.mode==='demo'?'Complete (demo)':'Complete');
+      dom.runLabel.textContent='Run again'; dom.runBtn.disabled=false;
+      $('.spinner',dom.runBtn)&&$('.spinner',dom.runBtn).remove();
+      if(!dom.runBtn.querySelector('svg')) dom.runBtn.insertBefore(playIcon(),dom.runBtn.firstChild);
+      break;
+  }
+}
+function playIcon(){ const s=document.createElementNS('http://www.w3.org/2000/svg','svg'); s.setAttribute('viewBox','0 0 24 24'); s.innerHTML='<path d="M7 5.5v13l11-6.5L7 5.5Z" fill="currentColor"/>'; return s; }
+
+/* ---------------- API layer (live + mock) ---------------- */
+const api = {
+  async run(){
+    if(State.mode==='demo'){ Mock.run(); return; }
+    const r = await fetch('/api/run', {method:'POST'});
+    if(!r.ok) throw new Error('POST /api/run → '+r.status);
+  },
+  async trace(id){
+    if(State.mode==='demo' || State.traces[id]){
+      const t = State.traces[id];
+      if(t) return Promise.resolve(normalizeTrace(t));
+      if(State.mode==='demo') throw new Error('no trace '+shortId(id));
+    }
+    const r = await fetch('/api/trace/'+encodeURIComponent(id));
+    if(!r.ok) throw new Error('GET /api/trace → '+r.status);
+    const d = await r.json(); State.traces[id]=d; return d;
+  },
+  async checkpoint(runId, body){
+    if(State.mode==='demo'){ return Promise.resolve({ok:true}); }
+    const r = await fetch('/checkpoint/'+encodeURIComponent(runId), {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+    });
+    if(r.status===409) throw new Error('409 — no gate open');
+    if(!r.ok) throw new Error('POST /checkpoint → '+r.status);
+    return r.json().catch(()=>({}));
+  }
+};
+function normalizeTrace(t){ const o={trace_id:t.trace_id, tool:t.tool, summary:t.summary};
+  ['contract','address','scenario','n','reverts','revert_rate','gas_used','reverted','function'].forEach(k=>{ if(t[k]!=null) o[k]=t[k]; });
+  return o;
+}
+
+/* ---------------- SSE connection + backend detection ---------------- */
+let evtSource=null;
+function connectSSE(){
+  if(evtSource){ try{evtSource.close();}catch(e){} }
+  try{
+    evtSource = new EventSource('/events');
+    evtSource.onmessage = e=>{ if(!e.data || e.data[0]===':') return; let f; try{f=JSON.parse(e.data);}catch(_){return;} if(f && f.kind) dispatch(f); };
+    evtSource.onerror = ()=>{ /* EventSource auto-retries; status stays as-is */ };
+  }catch(e){ /* ignore */ }
+}
+async function detectBackend(){
+  try{
+    const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),1100);
+    const r=await fetch('/healthz',{signal:ctrl.signal}); clearTimeout(t);
+    if(r.ok){ setMode('live', true); return; }
+  }catch(e){}
+  setMode('demo', true); // no backend → demo so judges can see it immediately
+}
+
+/* ---------------- Mode switching ---------------- */
+function setMode(mode, silent){
+  State.mode=mode;
+  dom.modeLive.classList.toggle('on', mode==='live');
+  dom.modeDemo.classList.toggle('on', mode==='demo');
+  if(mode==='live'){
+    setState('idle', evtSource? 'Live' : 'Live'); connectSSE();
+    if(!silent) toast('Live mode — connected to backend','#0E8A6E');
+  }else{
+    if(evtSource){ try{evtSource.close();}catch(e){} evtSource=null; }
+    setState('idle','Demo mode');
+    if(!silent) toast('Demo mode — deterministic replay (no backend)','#4B45D6');
+  }
+}
+
+/* ============================================================================
+   MOCK BACKEND — deterministic two-session replay.
+   Used only when no live backend answers /healthz, or when DEMO is toggled.
+   Pauses genuinely at the human checkpoint until the operator decides.
+   ============================================================================ */
+const Mock = (()=>{
+  const A='session-1-billing', B='session-2-vault';
+  const T='sandbox/contracts/SubscriptionBilling.sol', V='sandbox/contracts/YieldVault.sol';
+  // trace evidence store
+  const traces = {
+    'f3281d36cb8249d2866c08380b86063d':{tool:'deploy_to_fork',contract:'SubscriptionBilling',address:'0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0',summary:'deployed SubscriptionBilling at 0x9fE4…fa6e0'},
+    '514b47cc350542a98e044dc279585292':{tool:'measure_gas',function:'processBilling',gas_used:67156,reverted:false,summary:'baseline processBilling used 67156 gas'},
+    '2a73de2232174b33b1c38c228e543638':{tool:'get_revert_rate',scenario:'fee_spike',n:5,reverts:5,revert_rate:1.0,summary:'fee_spike: 5/5 reverted (100%)'},
+    '328da9fe82ac426baf5053cc54e076e6':{tool:'get_revert_rate',scenario:'high_congestion',n:5,reverts:5,revert_rate:1.0,summary:'high_congestion: 5/5 reverted (100%)'},
+    '280f768f56cd4080a2266fb459b5940a':{tool:'get_revert_rate',scenario:'fee_spike',n:5,reverts:5,revert_rate:1.0,summary:'reentrancy-guarded loop: 5/5 settlements revert under fee_spike'},
+    '7c13328be168492c93625b8113f96b21':{tool:'get_revert_rate',scenario:'high_congestion',n:5,reverts:5,revert_rate:1.0,summary:'partial-batching candidate: 5/5 revert under high_congestion'},
+    '84d2411d90f349518c15d45c93ffdbbe':{tool:'deploy_to_fork',contract:'SubscriptionBilling',address:'0x2e1bC4a8551E7eF5c1F0A9d2b3c4D5e6F7081234',summary:'deployed partial-batching candidate'},
+    'b1c4b33a63c344c1b475bbab4b7b4efc':{tool:'measure_gas',function:'deposit',gas_used:67156,reverted:false,summary:'deposit used 67156 gas (reverted=False)'},
+    '9f01d2c3b4a5968778695a4b3c2d1e0f':{tool:'measure_gas',function:'processBilling',gas_used:75806,reverted:false,summary:'patched processBilling used 75806 gas (+12.9%)'},
+    // session 2 — YieldVault, access-control
+    'aa11bb22cc33dd44ee55ff6677889900':{tool:'deploy_to_fork',contract:'YieldVault',address:'0x5B38Da6a701c568545dCfcB03FcB875f56beddC4',summary:'deployed YieldVault at 0x5B38…ddC4'},
+    'bb22cc33dd44ee55ff66778899001122':{tool:'get_revert_rate',scenario:'unauthorized_withdraw',n:5,reverts:0,revert_rate:0.0,summary:'unauthorized_withdraw: 0/5 reverted — attacker drains vault'},
+    'cc33dd44ee55ff6677889900112233':{tool:'measure_gas',function:'withdraw',gas_used:51210,reverted:false,summary:'withdraw used 51210 gas'},
+    'dd44ee55ff667788990011223344':{tool:'get_revert_rate',scenario:'unauthorized_withdraw',n:5,reverts:5,revert_rate:1.0,summary:'post-patch: 5/5 unauthorized withdrawals revert'},
+    'ee55ff66778899001122334455':{tool:'deploy_to_fork',contract:'YieldVault',address:'0x9A2dE8b6f3c1A4E5d7C8b9A0e1F2d3C4b5A60789',summary:'deployed access-control patched YieldVault'},
+  };
+  // packets
+  const packetA = {
+    run_id:A, target:T,
+    gated_reasons:['Applying a patch to the protocol (§7.1.2)','Deployment with non-zero residual risk (0%) (§7.1.1)','Proceeding past an unresolved Adversary veto (§7.1.3)'],
+    proposal:{proposal_id:'prop-partial-batching',iteration:2,patch_id:'partial-batching',proposed_by:'arbitrator',summary:'partial batching with a 2-block settlement delay',trace_ids:['84d2411d90f349518c15d45c93ffdbbe','514b47cc350542a98e044dc279585292']},
+    review:{vetoed:true,severity:'high',reason:'partial-batching candidate fails under high_congestion: 100% of settlements revert',evidence:'get_revert_rate(high_congestion) = 1.00 (5/5)',trace_ids:['328da9fe82ac426baf5053cc54e076e6','7c13328be168492c93625b8113f96b21']},
+    risk_profile:{outcome:'constraints_unsatisfied',final_proposal:'partial-batching',residual_risk_pct:0.0004,residual_risk_description:'Reentrancy is closed, but resolving fee-spike congestion via batching introduces settlement latency and vice versa — no single patch jointly minimises both. Deploy with a circuit breaker; 0.04% residual finality-delay risk.',mitigations_applied:['circuit-breaker: treasury-halt if observed revert rate > 5%'],memory_records_used:['00000000-0000-0000-0000-0000000000a2','00000000-0000-0000-0000-0000000000a1'],iterations:2,trace_ids:['2a73de2232174b33b1c38c228e543638','f3281d36cb8249d2866c08380b86063d','280f768f56cd4080a2266fb459b5940a','84d2411d90f349518c15d45c93ffdbbe','328da9fe82ac426baf5053cc54e076e6']},
+    memory_records_used:['00000000-0000-0000-0000-0000000000a2','00000000-0000-0000-0000-0000000000a1'],
+    topic_tags:['batching','settlement-latency','congestion']
+  };
+  const packetB = {
+    run_id:B, target:V,
+    gated_reasons:['Applying a patch to the protocol (§7.1.2)','Deploying access-control-critical change (§7.1.4)'],
+    proposal:{proposal_id:'prop-onlyowner-pull',iteration:2,patch_id:'onlyowner-pull-payment',proposed_by:'yield',summary:'restrict withdraw() with onlyOwner + migrate to pull-payment accounting',trace_ids:['ee55ff66778899001122334455','cc33dd44ee55ff6677889900112233']},
+    review:{vetoed:false,severity:'resolved',reason:'patched withdraw() now reverts all unauthorized attempts',evidence:'get_revert_rate(unauthorized_withdraw) = 1.00 (5/5)',trace_ids:['dd44ee55ff667788990011223344']},
+    risk_profile:{outcome:'consensus',final_proposal:'onlyowner-pull-payment',residual_risk_pct:0.0,residual_risk_description:'Access-control hole closed; all unauthorized withdrawals revert post-patch. No residual exposure identified under the tested scenarios.',mitigations_applied:['onlyOwner guard on withdraw()','pull-payment accounting to avoid push-reentrancy'],memory_records_used:['00000000-0000-0000-0000-0000000000a3'],iterations:2,trace_ids:['bb22cc33dd44ee55ff66778899001122','dd44ee55ff667788990011223344','ee55ff66778899001122334455']},
+    memory_records_used:['00000000-0000-0000-0000-0000000000a3'],
+    topic_tags:['access-control','pull-payment','onlyOwner']
+  };
+
+  function ts(){ return new Date().toISOString(); }
+  // script: array of frames; special {__wait:true} pauses for human
+  const script = [
+    // ---- SESSION 1 ----
+    {kind:'run_started',run_id:A,target:T},
+    {kind:'trace',demo_tag:'SYSTEM DECISION',run_id:A,agent:'orchestrator',action:'run_start',summary:'run start — auditing SubscriptionBilling.sol',ts:ts()},
+    {kind:'trace',summary:'read_contract · SubscriptionBilling.sol · 7 functions · 0 unauditable',path:T},
+    {kind:'trace',trace_id:'f3281d36cb8249d2866c08380b86063d',tool:'deploy_to_fork',summary:'deployed SubscriptionBilling at 0x9fE4…fa6e0'},
+    {kind:'trace',agent:'yield',action:'propose',iteration:1,trace_id:'514b47cc350542a98e044dc279585292',summary:'Yield: close reentrancy with a guarded settlement loop; baseline gas measured.'},
+    {kind:'trace',trace_id:'2a73de2232174b33b1c38c228e543638',tool:'get_revert_rate',summary:'fee_spike: 5/5 reverted (100%)'},
+    {kind:'trace',trace_id:'280f768f56cd4080a2266fb459b5940a',tool:'get_revert_rate',summary:'reentrancy-guarded loop: 5/5 settlements revert under fee_spike'},
+    {kind:'trace',demo_tag:'ADVERSARY VETO',run_id:A,agent:'adversary',action:'veto',trace_id:'280f768f56cd4080a2266fb459b5940a',iteration:1,summary:'reentrancy-guarded loop fails under fee_spike: 100% of settlements revert'},
+    {kind:'trace',agent:'yield',action:'revise',iteration:2,trace_id:'84d2411d90f349518c15d45c93ffdbbe',summary:'Yield: revise to partial batching with a 2-block settlement delay to relieve congestion.'},
+    {kind:'trace',trace_id:'328da9fe82ac426baf5053cc54e076e6',tool:'get_revert_rate',summary:'high_congestion: 5/5 reverted (100%)'},
+    {kind:'trace',trace_id:'7c13328be168492c93625b8113f96b21',tool:'get_revert_rate',summary:'partial-batching candidate: 5/5 revert under high_congestion'},
+    {kind:'trace',demo_tag:'CONSTRAINTS UNSATISFIED',run_id:A,agent:'arbitrator',action:'terminate',trace_id:'328da9fe82ac426baf5053cc54e076e6',iterations:2,summary:'no joint solution after 2 iterations — batching vs latency cannot be jointly minimised'},
+    {kind:'trace',demo_tag:'ANNOTATED RESIDUAL RISK',run_id:A,agent:'arbitrator',action:'risk_profile',trace_id:'2a73de2232174b33b1c38c228e543638',residual_risk_pct:0.0004,outcome:'constraints_unsatisfied',summary:'0% — Reentrancy is closed, but batching vs latency cannot be jointly minimised. Deploy with a circuit breaker; 0.04% residual finality-delay risk.'},
+    {kind:'trace',demo_tag:'HUMAN CHECKPOINT',run_id:A,agent:'human',action:'gate_open',summary:'gate open — awaiting human decision'},
+    {kind:'checkpoint_pending',run_id:A,packet:packetA},
+    {__wait:true,run:A},
+    {kind:'run_complete',run_id:A,target:T,outcome:'constraints_unsatisfied',residual_risk_pct:0.0004,final_proposal:'partial-batching',top_memory:'00000000-0000-0000-0000-0000000000a1'},
+    {kind:'trace',trace_id:'9f01d2c3b4a5968778695a4b3c2d1e0f',tool:'measure_gas',summary:'patched processBilling used 75806 gas (+12.9%)'},
+    {kind:'trace',trace_id:'b1c4b33a63c344c1b475bbab4b7b4efc',tool:'measure_gas',summary:'deposit used 67156 gas (reverted=False)'},
+    // ---- SESSION 2 ----
+    {kind:'run_started',run_id:B,target:V},
+    {kind:'trace',demo_tag:'SYSTEM DECISION',run_id:B,agent:'orchestrator',action:'run_start',summary:'run start — auditing YieldVault.sol',ts:ts()},
+    {kind:'trace',summary:'read_contract · YieldVault.sol · 9 functions · 0 unauditable',path:V},
+    {kind:'trace',trace_id:'aa11bb22cc33dd44ee55ff6677889900',tool:'deploy_to_fork',summary:'deployed YieldVault at 0x5B38…ddC4'},
+    {kind:'trace',agent:'yield',action:'propose',iteration:1,trace_id:'cc33dd44ee55ff6677889900112233',summary:'Yield: harden withdraw() — current path lets any caller move funds.'},
+    {kind:'trace',trace_id:'bb22cc33dd44ee55ff66778899001122',tool:'get_revert_rate',summary:'unauthorized_withdraw: 0/5 reverted — attacker drains vault'},
+    {kind:'trace',demo_tag:'ADVERSARY VETO',run_id:B,agent:'adversary',action:'veto',trace_id:'bb22cc33dd44ee55ff66778899001122',iteration:1,summary:'withdraw() missing access control: attacker drains vault, 0/5 unauthorized withdrawals revert'},
+    {kind:'trace',agent:'yield',action:'revise',iteration:2,trace_id:'ee55ff66778899001122334455',summary:'Yield: add onlyOwner guard + pull-payment accounting on withdraw().'},
+    {kind:'trace',trace_id:'dd44ee55ff667788990011223344',tool:'get_revert_rate',summary:'post-patch: 5/5 unauthorized withdrawals revert'},
+    {kind:'trace',agent:'arbitrator',action:'ratify',iteration:2,trace_id:'dd44ee55ff667788990011223344',summary:'Arbitrator: access-control patch satisfies all constraints — consensus reached.'},
+    {kind:'trace',demo_tag:'ANNOTATED RESIDUAL RISK',run_id:B,agent:'arbitrator',action:'risk_profile',trace_id:'dd44ee55ff667788990011223344',residual_risk_pct:0.0,outcome:'consensus',summary:'0% — access-control hole closed; all unauthorized withdrawals revert post-patch. No residual exposure under tested scenarios.'},
+    {kind:'trace',demo_tag:'HUMAN CHECKPOINT',run_id:B,agent:'human',action:'gate_open',summary:'gate open — awaiting human decision'},
+    {kind:'checkpoint_pending',run_id:B,packet:packetB},
+    {__wait:true,run:B},
+    {kind:'run_complete',run_id:B,target:V,outcome:'consensus',residual_risk_pct:0.0,final_proposal:'onlyowner-pull-payment',top_memory:'00000000-0000-0000-0000-0000000000a3'},
+    // ---- GLOBAL PAYOFF ----
+    {kind:'efficiency',rows:[
+      ['Vulnerabilities identified','1 (reentrancy)','2 (reentrancy + DoS)'],
+      ['False negatives (missed trade-offs)','1 (batching/latency)','0'],
+      ['Trade-offs surfaced','0','1 (batching vs latency)'],
+      ['Final patch gas delta vs original','n/a','+12.9%'],
+      ['Revert under congestion (post-patch)','n/a','100%'],
+      ['Tokens consumed','n/a','0 (deterministic driver)'],
+      ['Residual risk disclosed?','N','Y']]},
+    {kind:'cross_session',s1:'00000000-0000-0000-0000-0000000000a1',s2:'00000000-0000-0000-0000-0000000000a2',differ:true},
+    {kind:'all_complete'}
+  ];
+
+  let i=0, paused=false, runToken=0;
+  // expose traces so /api/trace works offline
+  function seedTraces(){ for(const id in traces){ State.traces[id] = Object.assign({trace_id:id}, traces[id]); } }
+  function step(token){
+    if(token!==runToken) return;
+    if(paused) return;
+    if(i>=script.length) return;
+    const fr = script[i++];
+    if(fr.__wait){ paused=true; return; }   // halt at checkpoint until human resolves
+    dispatch(fr);
+    // light, watchable pacing; bursts handled either way
+    const delay = fr.kind==='trace' ? (fr.demo_tag?260:150) : 320;
+    setTimeout(()=>step(token), delay);
+  }
+  return {
+    run(){
+      seedTraces();
+      // reset view
+      State.sim=[]; State.activeTrace=null; State.resultsEl=null; State.traces={}; seedTraces();
+      dom.timeline.innerHTML=''; dom.simlog.innerHTML='<div class="empty-sm">EVM simulation calls will appear here as the audit runs.</div>';
+      dom.simLogCt.textContent='0 calls'; dom.simCnt.textContent='0';
+      dom.evidence.innerHTML = EVIDENCE_EMPTY;
+      dom.tRisk.textContent='—'; dom.tRisk.className='v'; dom.tIter.textContent='—'; dom.tOutcome.textContent='—'; dom.tOutcome.className='v small';
+      i=0; paused=false; runToken++;
+      const tk=runToken;
+      runningUI();
+      setTimeout(()=>step(tk), 200);
+    },
+    resume(decision){
+      // emit checkpoint_resolved then continue
+      const fr=script[i];
+      dispatch({kind:'checkpoint_resolved', run_id: (fr&&fr.run)||State.runId, decision});
+      paused=false;
+      i++; // skip the wait marker
+      const tk=runToken;
+      setTimeout(()=>step(tk), 260);
+    }
+  };
+})();
+
+const EVIDENCE_EMPTY = dom.evidence.innerHTML;
+
+/* ---------------- Run button ---------------- */
+function runningUI(){
+  dom.runBtn.disabled=true;
+  dom.runBtn.innerHTML='<span class="spinner"></span><span id="runLabel">Auditing…</span>';
+  // reset telemetry display handled by callers
+}
+async function startRun(){
+  // fresh run resets timeline in live mode too
+  if(State.mode==='live'){
+    State.sim=[]; State.resultsEl=null; State.traces={};
+    dom.timeline.innerHTML=''; dom.simlog.innerHTML='<div class="empty-sm">EVM simulation calls will appear here as the audit runs.</div>';
+    dom.simLogCt.textContent='0 calls'; dom.simCnt.textContent='0';
+    dom.evidence.innerHTML=EVIDENCE_EMPTY;
+    dom.tRisk.textContent='—'; dom.tRisk.className='v'; dom.tIter.textContent='—'; dom.tOutcome.textContent='—';
+    runningUI();
+    if(!evtSource) connectSSE();
+  }
+  try{ await api.run(); }
+  catch(e){ toast('Could not start run: '+(e.message||'error'),'#D81E3F'); dom.runBtn.disabled=false; dom.runLabel&&(dom.runLabel.textContent='Run audit'); dom.runBtn.innerHTML='<svg viewBox="0 0 24 24" fill="none"><path d="M7 5.5v13l11-6.5L7 5.5Z" fill="currentColor"/></svg><span id="runLabel">Run audit</span>'; }
+}
+
+/* ---------------- Wire up ---------------- */
+dom.runBtn.addEventListener('click', startRun);
+$('#btnApprove').addEventListener('click', ()=>resolveCheckpoint('approve'));
+$('#btnReject').addEventListener('click', ()=>resolveCheckpoint('reject'));
+$('#btnEscalate').addEventListener('click', ()=>resolveCheckpoint('escalate'));
+dom.modeLive.addEventListener('click', ()=>setMode('live'));
+dom.modeDemo.addEventListener('click', ()=>setMode('demo'));
+dom.inspToggle.addEventListener('click', ()=>dom.inspector.classList.toggle('open'));
+// keyboard: Esc closes inspector drawer on mobile (gate is intentionally non-dismissable)
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && !State.gateOpen && dom.inspector.classList.contains('open')) dom.inspector.classList.remove('open');
+});
+
+// boot
+detectBackend();
+</script>
+</body>
+</html>

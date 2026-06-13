@@ -1,0 +1,912 @@
+{
+  "sse_frames": [
+    {
+      "kind": "run_started",
+      "run_id": "session-1-billing",
+      "target": "sandbox/contracts/SubscriptionBilling.sol"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "SYSTEM DECISION",
+      "run_id": "session-1-billing",
+      "agent": "orchestrator",
+      "action": "run_start",
+      "trace_id": null,
+      "tokens_used": 0,
+      "model": null,
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.007946Z",
+      "summary": "run start \u2014 auditing sandbox/contracts/SubscriptionBilling.sol"
+    },
+    {
+      "kind": "trace",
+      "path": "sandbox/contracts/SubscriptionBilling.sol",
+      "functions": 7,
+      "unauditable": 0,
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.010631Z",
+      "summary": "read_contract"
+    },
+    {
+      "kind": "trace",
+      "path": "sandbox/contracts/SubscriptionBilling.sol",
+      "functions": 7,
+      "unauditable": 0,
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.012987Z",
+      "summary": "read_contract"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "f3281d36cb8249d2866c08380b86063d",
+      "tool": "deploy_to_fork",
+      "summary": "deployed SubscriptionBilling at 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+      "contract": "SubscriptionBilling",
+      "address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.030732Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "2a73de2232174b33b1c38c228e543638",
+      "tool": "get_revert_rate",
+      "summary": "fee_spike: 5/5 reverted (100%)",
+      "address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+      "scenario": "fee_spike",
+      "n": 5,
+      "reverts": 5,
+      "revert_rate": 1.0,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.092351Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "e0066a2939da426ba0ad931c6e1f1ca4",
+      "tool": "deploy_to_fork",
+      "summary": "deployed SubscriptionBillingGuarded at 0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
+      "contract": "SubscriptionBillingGuarded",
+      "address": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.096920Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "2f8eea13e279433499b3fd9d997c5e43",
+      "tool": "get_revert_rate",
+      "summary": "fee_spike: 5/5 reverted (100%)",
+      "address": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
+      "scenario": "fee_spike",
+      "n": 5,
+      "reverts": 5,
+      "revert_rate": 1.0,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.147061Z"
+    },
+    {
+      "kind": "trace",
+      "path": "sandbox/contracts/SubscriptionBilling.sol",
+      "functions": 7,
+      "unauditable": 0,
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.147872Z",
+      "summary": "read_contract"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "a7c4cb4fc34f4842b2b2705f0f059592",
+      "tool": "deploy_to_fork",
+      "summary": "deployed SubscriptionBillingGuarded at 0x9A676e781A523b5d0C0e43731313A708CB607508",
+      "contract": "SubscriptionBillingGuarded",
+      "address": "0x9A676e781A523b5d0C0e43731313A708CB607508",
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.151685Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "280f768f56cd4080a2266fb459b5940a",
+      "tool": "get_revert_rate",
+      "summary": "fee_spike: 5/5 reverted (100%)",
+      "address": "0x9A676e781A523b5d0C0e43731313A708CB607508",
+      "scenario": "fee_spike",
+      "n": 5,
+      "reverts": 5,
+      "revert_rate": 1.0,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.197290Z"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "ADVERSARY VETO",
+      "run_id": "session-1-billing",
+      "agent": "adversary",
+      "action": "veto",
+      "trace_id": "280f768f56cd4080a2266fb459b5940a",
+      "tokens_used": 0,
+      "model": null,
+      "iteration": 1,
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.197428Z",
+      "summary": "reentrancy-guarded loop fails under fee_spike: 100% of settlements revert"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "514b47cc350542a98e044dc279585292",
+      "tool": "deploy_to_fork",
+      "summary": "deployed SubscriptionBillingGuarded at 0xc6e7DF5E7b4f2A278906862b61205850344D4e7d",
+      "contract": "SubscriptionBillingGuarded",
+      "address": "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d",
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.201841Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "84d2411d90f349518c15d45c93ffdbbe",
+      "tool": "get_revert_rate",
+      "summary": "high_congestion: 5/5 reverted (100%)",
+      "address": "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d",
+      "scenario": "high_congestion",
+      "n": 5,
+      "reverts": 5,
+      "revert_rate": 1.0,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.247627Z"
+    },
+    {
+      "kind": "trace",
+      "path": "sandbox/contracts/SubscriptionBilling.sol",
+      "functions": 7,
+      "unauditable": 0,
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.248412Z",
+      "summary": "read_contract"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "7c13328be168492c93625b8113f96b21",
+      "tool": "deploy_to_fork",
+      "summary": "deployed SubscriptionBillingGuarded at 0x7a2088a1bFc9d81c55368AE168C2C02570cB814F",
+      "contract": "SubscriptionBillingGuarded",
+      "address": "0x7a2088a1bFc9d81c55368AE168C2C02570cB814F",
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.252301Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "328da9fe82ac426baf5053cc54e076e6",
+      "tool": "get_revert_rate",
+      "summary": "high_congestion: 5/5 reverted (100%)",
+      "address": "0x7a2088a1bFc9d81c55368AE168C2C02570cB814F",
+      "scenario": "high_congestion",
+      "n": 5,
+      "reverts": 5,
+      "revert_rate": 1.0,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.297848Z"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "ADVERSARY VETO",
+      "run_id": "session-1-billing",
+      "agent": "adversary",
+      "action": "veto",
+      "trace_id": "328da9fe82ac426baf5053cc54e076e6",
+      "tokens_used": 0,
+      "model": null,
+      "iteration": 2,
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.298015Z",
+      "summary": "partial-batching candidate fails under high_congestion: 100% of settlements revert"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "CONSTRAINTS UNSATISFIED",
+      "run_id": "session-1-billing",
+      "agent": "arbitrator",
+      "action": "terminate",
+      "trace_id": "328da9fe82ac426baf5053cc54e076e6",
+      "tokens_used": 0,
+      "model": null,
+      "iterations": 2,
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.298569Z",
+      "summary": "no joint solution after 2 iterations"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "ANNOTATED RESIDUAL RISK",
+      "run_id": "session-1-billing",
+      "agent": "arbitrator",
+      "action": "risk_profile",
+      "trace_id": "2a73de2232174b33b1c38c228e543638",
+      "tokens_used": 0,
+      "model": null,
+      "residual_risk_pct": 0.0004,
+      "outcome": "constraints_unsatisfied",
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.298638Z",
+      "summary": "0% \u2014 Reentrancy is closed, but resolving fee-spike congestion via batching introduces settlement latency and vice versa \u2014 no single patch jointly minimises both. Deploy with a circuit breaker; 0.04% residual finality-delay risk."
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "HUMAN CHECKPOINT",
+      "run_id": "session-1-billing",
+      "agent": "human",
+      "action": "gate_open",
+      "trace_id": null,
+      "tokens_used": 0,
+      "model": null,
+      "target": "sandbox/contracts/SubscriptionBilling.sol",
+      "gated_reasons": [
+        "Applying a patch to the protocol (\u00a77.1.2)",
+        "Deployment with non-zero residual risk (0%) (\u00a77.1.1)",
+        "Proceeding past an unresolved Adversary veto (\u00a77.1.3)"
+      ],
+      "level": "info",
+      "ts": "2026-06-13T07:38:13.298790Z",
+      "summary": "gate open \u2014 awaiting human"
+    },
+    {
+      "kind": "checkpoint_pending",
+      "run_id": "session-1-billing",
+      "packet": {
+        "run_id": "session-1-billing",
+        "target": "sandbox/contracts/SubscriptionBilling.sol",
+        "gated_reasons": [
+          "Applying a patch to the protocol (\u00a77.1.2)",
+          "Deployment with non-zero residual risk (0%) (\u00a77.1.1)",
+          "Proceeding past an unresolved Adversary veto (\u00a77.1.3)"
+        ],
+        "proposal": {
+          "proposal_id": "prop-partial-batching",
+          "run_id": "demo",
+          "iteration": 2,
+          "patch_id": "partial-batching",
+          "proposed_by": "arbitrator",
+          "summary": "partial batching with a 2-block settlement delay",
+          "trace_ids": [
+            "84d2411d90f349518c15d45c93ffdbbe",
+            "514b47cc350542a98e044dc279585292"
+          ]
+        },
+        "assessment": {
+          "run_id": "demo",
+          "iteration": 0,
+          "verdict": "revise",
+          "rationale": "batching breaks the atomic-settlement guarantee the merchant requires",
+          "referenced_functions": [
+            "constructor",
+            "subscribe",
+            "deposit",
+            "processBilling"
+          ],
+          "proposed_parameters": {}
+        },
+        "review": {
+          "run_id": "demo",
+          "iteration": 3,
+          "target_proposal_id": "demo",
+          "vetoed": true,
+          "severity": "high",
+          "reason": "partial-batching candidate fails under high_congestion: 100% of settlements revert",
+          "evidence": "get_revert_rate(high_congestion) = 1.00 (5/5)",
+          "trace_ids": [
+            "328da9fe82ac426baf5053cc54e076e6",
+            "7c13328be168492c93625b8113f96b21"
+          ]
+        },
+        "risk_profile": {
+          "run_id": "session-1-billing",
+          "outcome": "constraints_unsatisfied",
+          "final_proposal": "partial-batching",
+          "residual_risk_pct": 0.0004,
+          "residual_risk_description": "Reentrancy is closed, but resolving fee-spike congestion via batching introduces settlement latency and vice versa \u2014 no single patch jointly minimises both. Deploy with a circuit breaker; 0.04% residual finality-delay risk.",
+          "mitigations_applied": [
+            "circuit-breaker: treasury-halt if observed revert rate > 5%"
+          ],
+          "memory_records_used": [
+            "00000000-0000-0000-0000-0000000000a2",
+            "00000000-0000-0000-0000-0000000000a1"
+          ],
+          "iterations": 2,
+          "tokens_total": 0,
+          "trace_ids": [
+            "2a73de2232174b33b1c38c228e543638",
+            "f3281d36cb8249d2866c08380b86063d",
+            "2f8eea13e279433499b3fd9d997c5e43",
+            "e0066a2939da426ba0ad931c6e1f1ca4",
+            "280f768f56cd4080a2266fb459b5940a",
+            "a7c4cb4fc34f4842b2b2705f0f059592",
+            "84d2411d90f349518c15d45c93ffdbbe",
+            "514b47cc350542a98e044dc279585292",
+            "328da9fe82ac426baf5053cc54e076e6",
+            "7c13328be168492c93625b8113f96b21"
+          ]
+        },
+        "memory_records_used": [
+          "00000000-0000-0000-0000-0000000000a2",
+          "00000000-0000-0000-0000-0000000000a1"
+        ],
+        "topic_tags": [
+          "batching",
+          "settlement-latency",
+          "congestion"
+        ]
+      }
+    },
+    {
+      "kind": "checkpoint_resolved",
+      "run_id": "session-1-billing",
+      "decision": "approve"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "HUMAN CHECKPOINT",
+      "run_id": "session-1-billing",
+      "agent": "human",
+      "action": "decision",
+      "trace_id": null,
+      "tokens_used": 0,
+      "model": null,
+      "decision": "approve",
+      "rationale": null,
+      "instruction": null,
+      "responded_at": "2026-06-13T07:38:55.231655+00:00",
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.232713Z",
+      "summary": "human chose to approve"
+    },
+    {
+      "kind": "trace",
+      "id": "0821b652-792d-4a9c-8aad-be608a2a2af2",
+      "topic_tags": [
+        "batching",
+        "settlement-latency",
+        "congestion"
+      ],
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.247945Z",
+      "summary": "write_memory"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "HUMAN CHECKPOINT",
+      "run_id": "session-1-billing",
+      "agent": "lessons",
+      "action": "post_mortem",
+      "trace_id": null,
+      "tokens_used": 0,
+      "model": null,
+      "post_mortem_id": "0821b652-792d-4a9c-8aad-be608a2a2af2",
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.248287Z",
+      "summary": "post-mortem recorded to MemoryMCP"
+    },
+    {
+      "kind": "run_complete",
+      "run_id": "session-1-billing",
+      "target": "sandbox/contracts/SubscriptionBilling.sol",
+      "outcome": "constraints_unsatisfied",
+      "residual_risk_pct": 0.0004,
+      "final_proposal": "partial-batching",
+      "top_memory": "00000000-0000-0000-0000-0000000000a1"
+    },
+    {
+      "kind": "run_started",
+      "run_id": "session-2-vault",
+      "target": "sandbox/contracts/YieldVault.sol"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "SYSTEM DECISION",
+      "run_id": "session-2-vault",
+      "agent": "orchestrator",
+      "action": "run_start",
+      "trace_id": null,
+      "tokens_used": 0,
+      "model": null,
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.249090Z",
+      "summary": "run start \u2014 auditing sandbox/contracts/YieldVault.sol"
+    },
+    {
+      "kind": "trace",
+      "path": "sandbox/contracts/YieldVault.sol",
+      "functions": 5,
+      "unauditable": 0,
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.252463Z",
+      "summary": "read_contract"
+    },
+    {
+      "kind": "trace",
+      "path": "sandbox/contracts/YieldVault.sol",
+      "functions": 5,
+      "unauditable": 0,
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.255604Z",
+      "summary": "read_contract"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "57df16de847c499ebd10acec5af51c74",
+      "tool": "deploy_to_fork",
+      "summary": "deployed YieldVault at 0x84eA74d481Ee0A5332c457a4d796187F6Ba67fEB",
+      "contract": "YieldVault",
+      "address": "0x84eA74d481Ee0A5332c457a4d796187F6Ba67fEB",
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.273901Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "b1c4b33a63c344c1b475bbab4b7b4efc",
+      "tool": "measure_gas",
+      "summary": "deposit used 67156 gas (reverted=False)",
+      "address": "0x84eA74d481Ee0A5332c457a4d796187F6Ba67fEB",
+      "function": "deposit",
+      "gas_used": 67156,
+      "reverted": false,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.285875Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "f17b4a33987c45e4be7b0259a60cd1b9",
+      "tool": "measure_gas",
+      "summary": "setOperator used 28442 gas (reverted=False)",
+      "address": "0x84eA74d481Ee0A5332c457a4d796187F6Ba67fEB",
+      "function": "setOperator",
+      "gas_used": 28442,
+      "reverted": false,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.294883Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "1b862f000a104988afab0053e17adb88",
+      "tool": "deploy_to_fork",
+      "summary": "deployed YieldVault at 0x9E545E3C0baAB3E08CdfD552C960A1050f373042",
+      "contract": "YieldVault",
+      "address": "0x9E545E3C0baAB3E08CdfD552C960A1050f373042",
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.303258Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "c47282f668c847fdaa9d90f8732a951b",
+      "tool": "measure_gas",
+      "summary": "deposit used 67156 gas (reverted=False)",
+      "address": "0x9E545E3C0baAB3E08CdfD552C960A1050f373042",
+      "function": "deposit",
+      "gas_used": 67156,
+      "reverted": false,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.311538Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "089ed2f3de6d4458815210e5f19ec0b2",
+      "tool": "measure_gas",
+      "summary": "setOperator used 28442 gas (reverted=False)",
+      "address": "0x9E545E3C0baAB3E08CdfD552C960A1050f373042",
+      "function": "setOperator",
+      "gas_used": 28442,
+      "reverted": false,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.317523Z"
+    },
+    {
+      "kind": "trace",
+      "path": "sandbox/contracts/YieldVault.sol",
+      "functions": 5,
+      "unauditable": 0,
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.318327Z",
+      "summary": "read_contract"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "fc777095b69c4423b6acae168f3aeb44",
+      "tool": "deploy_to_fork",
+      "summary": "deployed YieldVault at 0xa82fF9aFd8f496c3d6ac40E2a0F282E47488CFc9",
+      "contract": "YieldVault",
+      "address": "0xa82fF9aFd8f496c3d6ac40E2a0F282E47488CFc9",
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.324007Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "83fb008063ce4cb09b4861d1423b0a4a",
+      "tool": "measure_gas",
+      "summary": "deposit used 67156 gas (reverted=False)",
+      "address": "0xa82fF9aFd8f496c3d6ac40E2a0F282E47488CFc9",
+      "function": "deposit",
+      "gas_used": 67156,
+      "reverted": false,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.330466Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "c2f3108dc59a4827b6ed09715eb1179f",
+      "tool": "measure_gas",
+      "summary": "setOperator used 28442 gas (reverted=False)",
+      "address": "0xa82fF9aFd8f496c3d6ac40E2a0F282E47488CFc9",
+      "function": "setOperator",
+      "gas_used": 28442,
+      "reverted": false,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.335635Z"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "ADVERSARY VETO",
+      "run_id": "session-2-vault",
+      "agent": "adversary",
+      "action": "veto",
+      "trace_id": "c2f3108dc59a4827b6ed09715eb1179f",
+      "tokens_used": 0,
+      "model": null,
+      "iteration": 1,
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.335794Z",
+      "summary": "gated-withdraw candidate: an unauthorized account reassigned the operator role (call did not revert) \u2014 access control is missing"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "CONSTRAINTS UNSATISFIED",
+      "run_id": "session-2-vault",
+      "agent": "arbitrator",
+      "action": "terminate",
+      "trace_id": "c2f3108dc59a4827b6ed09715eb1179f",
+      "tokens_used": 0,
+      "model": null,
+      "iterations": 1,
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.336574Z",
+      "summary": "no joint solution after 1 iterations"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "ANNOTATED RESIDUAL RISK",
+      "run_id": "session-2-vault",
+      "agent": "arbitrator",
+      "action": "risk_profile",
+      "trace_id": "f17b4a33987c45e4be7b0259a60cd1b9",
+      "tokens_used": 0,
+      "model": null,
+      "residual_risk_pct": 0.05,
+      "outcome": "constraints_unsatisfied",
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.336661Z",
+      "summary": "5% \u2014 An onlyOwner gate on the privileged paths is proposed, but cannot be simulation-verified without the patched artifact \u2014 flagged for re-audit before deployment."
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "HUMAN CHECKPOINT",
+      "run_id": "session-2-vault",
+      "agent": "human",
+      "action": "gate_open",
+      "trace_id": null,
+      "tokens_used": 0,
+      "model": null,
+      "target": "sandbox/contracts/YieldVault.sol",
+      "gated_reasons": [
+        "Applying a patch to the protocol (\u00a77.1.2)",
+        "Deployment with non-zero residual risk (5%) (\u00a77.1.1)",
+        "Proceeding past an unresolved Adversary veto (\u00a77.1.3)"
+      ],
+      "level": "info",
+      "ts": "2026-06-13T07:38:55.336805Z",
+      "summary": "gate open \u2014 awaiting human"
+    },
+    {
+      "kind": "checkpoint_pending",
+      "run_id": "session-2-vault",
+      "packet": {
+        "run_id": "session-2-vault",
+        "target": "sandbox/contracts/YieldVault.sol",
+        "gated_reasons": [
+          "Applying a patch to the protocol (\u00a77.1.2)",
+          "Deployment with non-zero residual risk (5%) (\u00a77.1.1)",
+          "Proceeding past an unresolved Adversary veto (\u00a77.1.3)"
+        ],
+        "proposal": {
+          "proposal_id": "prop-gate-privileged-fns",
+          "run_id": "demo",
+          "iteration": 1,
+          "patch_id": "gate-privileged-fns",
+          "proposed_by": "arbitrator",
+          "summary": "gate setOperator and emergencyWithdraw with onlyOwner",
+          "trace_ids": [
+            "089ed2f3de6d4458815210e5f19ec0b2",
+            "1b862f000a104988afab0053e17adb88"
+          ]
+        },
+        "assessment": {
+          "run_id": "demo",
+          "iteration": 0,
+          "verdict": "accept",
+          "rationale": "emergencyWithdraw is bounded and ready to ship",
+          "referenced_functions": [
+            "constructor",
+            "deposit",
+            "withdraw",
+            "setOperator"
+          ],
+          "proposed_parameters": {}
+        },
+        "review": {
+          "run_id": "demo",
+          "iteration": 2,
+          "target_proposal_id": "demo",
+          "vetoed": true,
+          "severity": "high",
+          "reason": "gated-withdraw candidate: an unauthorized account reassigned the operator role (call did not revert) \u2014 access control is missing",
+          "evidence": "measure_gas(setOperator, sender=attacker) reverted=False",
+          "trace_ids": [
+            "c2f3108dc59a4827b6ed09715eb1179f",
+            "fc777095b69c4423b6acae168f3aeb44"
+          ]
+        },
+        "risk_profile": {
+          "run_id": "session-2-vault",
+          "outcome": "constraints_unsatisfied",
+          "final_proposal": "gate-privileged-fns",
+          "residual_risk_pct": 0.05,
+          "residual_risk_description": "An onlyOwner gate on the privileged paths is proposed, but cannot be simulation-verified without the patched artifact \u2014 flagged for re-audit before deployment.",
+          "mitigations_applied": [
+            "onlyOwner gate on every privileged path"
+          ],
+          "memory_records_used": [
+            "00000000-0000-0000-0000-0000000000a2"
+          ],
+          "iterations": 1,
+          "tokens_total": 0,
+          "trace_ids": [
+            "f17b4a33987c45e4be7b0259a60cd1b9",
+            "57df16de847c499ebd10acec5af51c74",
+            "089ed2f3de6d4458815210e5f19ec0b2",
+            "1b862f000a104988afab0053e17adb88",
+            "c2f3108dc59a4827b6ed09715eb1179f",
+            "fc777095b69c4423b6acae168f3aeb44"
+          ]
+        },
+        "memory_records_used": [
+          "00000000-0000-0000-0000-0000000000a2"
+        ],
+        "topic_tags": [
+          "access-control",
+          "fund-custody"
+        ]
+      }
+    },
+    {
+      "kind": "checkpoint_resolved",
+      "run_id": "session-2-vault",
+      "decision": "escalate"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "HUMAN CHECKPOINT",
+      "run_id": "session-2-vault",
+      "agent": "human",
+      "action": "decision",
+      "trace_id": null,
+      "tokens_used": 0,
+      "model": null,
+      "decision": "escalate",
+      "rationale": null,
+      "instruction": null,
+      "responded_at": "2026-06-13T07:41:06.004715+00:00",
+      "level": "info",
+      "ts": "2026-06-13T07:41:06.008041Z",
+      "summary": "human chose to escalate"
+    },
+    {
+      "kind": "trace",
+      "id": "28c9313d-c387-4145-8eb8-a89a5907860c",
+      "topic_tags": [
+        "access-control",
+        "fund-custody"
+      ],
+      "level": "info",
+      "ts": "2026-06-13T07:41:06.012873Z",
+      "summary": "write_memory"
+    },
+    {
+      "kind": "trace",
+      "demo_tag": "HUMAN CHECKPOINT",
+      "run_id": "session-2-vault",
+      "agent": "lessons",
+      "action": "post_mortem",
+      "trace_id": null,
+      "tokens_used": 0,
+      "model": null,
+      "post_mortem_id": "28c9313d-c387-4145-8eb8-a89a5907860c",
+      "level": "info",
+      "ts": "2026-06-13T07:41:06.013159Z",
+      "summary": "post-mortem recorded to MemoryMCP"
+    },
+    {
+      "kind": "run_complete",
+      "run_id": "session-2-vault",
+      "target": "sandbox/contracts/YieldVault.sol",
+      "outcome": "constraints_unsatisfied",
+      "residual_risk_pct": 0.05,
+      "final_proposal": "gate-privileged-fns",
+      "top_memory": "00000000-0000-0000-0000-0000000000a2"
+    },
+    {
+      "kind": "trace",
+      "path": "sandbox/contracts/SubscriptionBilling.sol",
+      "functions": 7,
+      "unauditable": 0,
+      "level": "info",
+      "ts": "2026-06-13T07:41:06.017049Z",
+      "summary": "read_contract"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "366ceef7e2b34f9d9b8757dc739afbb1",
+      "tool": "deploy_to_fork",
+      "summary": "deployed SubscriptionBilling at 0x1613beB3B2C4f22Ee086B2b38C1476A3cE7f78E8",
+      "contract": "SubscriptionBilling",
+      "address": "0x1613beB3B2C4f22Ee086B2b38C1476A3cE7f78E8",
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:41:06.043740Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "a0f2e2c2eda54cef8597410be05dec72",
+      "tool": "deploy_to_fork",
+      "summary": "deployed SubscriptionBillingGuarded at 0x851356ae760d987E095750cCeb3bC6014560891C",
+      "contract": "SubscriptionBillingGuarded",
+      "address": "0x851356ae760d987E095750cCeb3bC6014560891C",
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:41:06.053292Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "b044a48174f14a189a2df8046c90738c",
+      "tool": "measure_gas",
+      "summary": "subscribe used 134198 gas (reverted=False)",
+      "address": "0x1613beB3B2C4f22Ee086B2b38C1476A3cE7f78E8",
+      "function": "subscribe",
+      "gas_used": 134198,
+      "reverted": false,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:41:06.060110Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "2eaaba90b1af4b80978c8e123989cff8",
+      "tool": "measure_gas",
+      "summary": "subscribe used 134210 gas (reverted=False)",
+      "address": "0x851356ae760d987E095750cCeb3bC6014560891C",
+      "function": "subscribe",
+      "gas_used": 134210,
+      "reverted": false,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:41:06.066368Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "1bb997bc7db74ccd8ed45e0faf7dfdb6",
+      "tool": "measure_gas",
+      "summary": "cancelSubscription used 31854 gas (reverted=False)",
+      "address": "0x1613beB3B2C4f22Ee086B2b38C1476A3cE7f78E8",
+      "function": "cancelSubscription",
+      "gas_used": 31854,
+      "reverted": false,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:41:06.071557Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "b20411b0ae364b2f9b0108044bb5b321",
+      "tool": "measure_gas",
+      "summary": "cancelSubscription used 35963 gas (reverted=False)",
+      "address": "0x851356ae760d987E095750cCeb3bC6014560891C",
+      "function": "cancelSubscription",
+      "gas_used": 35963,
+      "reverted": false,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:41:06.076215Z"
+    },
+    {
+      "kind": "trace",
+      "trace_id": "dbde672f4e5e42c186bd09f9a4ca3667",
+      "tool": "get_revert_rate",
+      "summary": "high_congestion: 5/5 reverted (100%)",
+      "address": "0x851356ae760d987E095750cCeb3bC6014560891C",
+      "scenario": "high_congestion",
+      "n": 5,
+      "reverts": 5,
+      "revert_rate": 1.0,
+      "event": "sim_trace",
+      "level": "info",
+      "ts": "2026-06-13T07:41:06.125462Z"
+    },
+    {
+      "kind": "efficiency",
+      "rows": [
+        [
+          "Vulnerabilities identified",
+          "1 (reentrancy)",
+          "2 (reentrancy + DoS)"
+        ],
+        [
+          "False negatives (missed trade-offs)",
+          "1 (batching/latency)",
+          "0"
+        ],
+        [
+          "Trade-offs surfaced",
+          "0",
+          "1 (batching vs latency)"
+        ],
+        [
+          "Final patch gas delta vs original",
+          "n/a",
+          "+12.9%"
+        ],
+        [
+          "Revert under congestion (post-patch)",
+          "n/a",
+          "100%"
+        ],
+        [
+          "Tokens consumed",
+          "n/a",
+          "0 (deterministic driver)"
+        ],
+        [
+          "Residual risk disclosed?",
+          "N",
+          "Y"
+        ]
+      ]
+    },
+    {
+      "kind": "cross_session",
+      "s1": "00000000-0000-0000-0000-0000000000a1",
+      "s2": "00000000-0000-0000-0000-0000000000a2",
+      "differ": true
+    },
+    {
+      "kind": "all_complete"
+    }
+  ],
+  "example_trace_lookup": {
+    "trace_id": "f3281d36cb8249d2866c08380b86063d",
+    "tool": "deploy_to_fork",
+    "summary": "deployed SubscriptionBilling at 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "contract": "SubscriptionBilling",
+    "address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"
+  }
+}
