@@ -46,7 +46,10 @@ _log = get_logger("orchestrator")
 class _AgentLike(Protocol):
     """Shared surface: every agent exposes the model id it calls (§9 tiering)."""
 
-    model: str
+    @property
+    def model(self) -> str:
+        """The model id this agent calls (read-only; a plain attr also satisfies)."""
+        ...
 
 
 class YieldLike(_AgentLike, Protocol):

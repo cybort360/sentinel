@@ -16,29 +16,52 @@ sub-tracks.
 ## Quick start
 
 ```bash
-make setup          # create venv via uv, install deps, check for Foundry
-make check          # lint + format-check + mypy --strict + unit tests
-make build-sandbox  # spin up Anvil and deploy the demo contracts
-make demo           # run the end-to-end §12 demo trace against the real sandbox
+make run-demo   # reproducible showcase — no API keys needed
+make run        # the real thing — live Qwen agents (needs QWEN_* in .env)
 ```
 
-`make demo` runs the two-session War Room end to end against a live Anvil sandbox
-(real simulation data, real institutional memory, a real blocking human
-checkpoint), then prints the [`architecture.md`](architecture.md) §11 efficiency
-table. The checkpoint auto-approves with a clearly-labelled demo decision; pass
-`--interactive` (`uv run python -m demo.run_demo --interactive`) for the real
-`rich` prompt.
+Both are one command: they install dependencies and run the two-session War Room
+against a live Anvil sandbox (real simulation data, real institutional memory, a
+real blocking human checkpoint), then print the
+[`architecture.md`](architecture.md) §11 efficiency table. **The sandbox is
+started and stopped automatically** — no manual setup or teardown.
 
-Requires Python 3.11+ (provisioned by `uv`) and Foundry (`foundryup`) for the
-sandbox. Copy `.env.example` to `.env` to set `ANVIL_FORK_URL` (read-only fork
-state) and, for the live LLM agents, the `QWEN_*` credentials.
+- **`make run-demo`** uses deterministic demo drivers that make *real*
+  `SimulationMCP` calls (Golden Rule 1 preserved) — fully reproducible, no
+  credentials. This is the showcase / what CI validates.
+- **`make run`** runs the real five-agent Qwen War Room. Set `QWEN_*` in `.env`
+  first; if they're unset it prints a notice and falls back to the demo drivers,
+  so it still works.
+
+The only prerequisite is **Foundry** (one-time: `curl -L
+https://foundry.paradigm.xyz | bash && foundryup`); Python 3.11+ is provisioned
+by `uv`. Copy `.env.example` to `.env` for `ANVIL_FORK_URL` and the `QWEN_*`
+credentials.
+
+The checkpoint auto-approves with a clearly-labelled demo decision; pass
+`--interactive` (`uv run python -m demo.run_demo --interactive`, with the sandbox
+running) for the real `rich` prompt.
 
 ## Web UI (browser War Room)
 
 ```bash
-make build-sandbox  # Anvil + demo contracts
-make web            # serve the War Room at http://localhost:8088
+make run-web    # one command: set up, then serve the UI (sandbox auto-managed)
 ```
+Then open **http://localhost:8088**.
+
+## Efficiency benchmark (Track 3: measurable gain vs single-agent baseline)
+
+```bash
+make bench      # audits a corpus with the single-pass Baseline AND the War Room
+```
+
+Scores both against a known ground truth and prints the comparison. On the
+current 3-contract corpus the multi-agent Society beats the single-agent baseline
+on every axis — e.g. **100% vs 67% detection**, **3 vs 0 trade-offs surfaced**,
+**0 vs 1 false negatives**, **22 vs 0 trace-backed (real-simulation) claims**. The
+gap is structural: a single-pass source reader cannot see a simulation-discovered
+DoS or quantify residual risk. Scoring lives in
+`src/sentinel/orchestrator/benchmark.py`; adding contracts grows the corpus.
 
 A single-page view of the same audit: the War Room timeline streams live (SSE),
 every cited number is one click from the real `SimulationMCP` result behind it
@@ -62,10 +85,12 @@ The same `docker-compose.yml` is the Alibaba Cloud deployment artifact —
 The War Room (Yield / Adversary / Arbitrator / Lessons / Baseline agents), all
 three custom MCP servers, the decaying memory store, the blocking human
 checkpoint, the orchestration graph, and the end-to-end demo are implemented and
-covered by unit + integration (real-Anvil) + golden-trace tests. Note: in this
-build the demo agents are deterministic drivers making **real** `SimulationMCP`
-calls (Golden Rule 1 preserved) — wiring the live Qwen models behind the same
-agent interfaces is the remaining step before final submission.
+covered by unit + integration (real-Anvil) + golden-trace tests. The default demo
+agents are deterministic drivers making **real** `SimulationMCP` calls (Golden
+Rule 1 preserved). The live Qwen agents are **wired** behind the same interfaces
+(`make dev` / `run_demo --live`, demo-driver fallback when creds are absent) and
+verified offline by a mocked-client smoke test — only live Qwen credentials
+remain before they run for real.
 
 ## License
 

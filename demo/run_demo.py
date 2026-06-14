@@ -44,6 +44,8 @@ from demo.agents import (
     RevertProbe,
     SynthPlan,
 )
+from sentinel.agents.factory import build_war_room
+from sentinel.agents.qwen_client import QwenClient, QwenConfig, QwenConfigError
 from sentinel.mcp_servers.codebase_mcp.config import CodebaseConfig
 from sentinel.mcp_servers.codebase_mcp.engine import CodebaseEngine
 from sentinel.mcp_servers.memory_mcp.config import MemoryConfig
@@ -247,6 +249,34 @@ def _build_vault_graph(
     )
 
 
+def _live_or_demo_graph(
+    target: str,
+    simulation: SimulationEngine,
+    codebase: CodebaseEngine,
+    memory: MemoryStore,
+    live: tuple[QwenClient, QwenConfig] | None,
+) -> WarRoomGraph:
+    """Pick the live (Qwen) War Room or the deterministic demo graph for a target.
+
+    With ``live`` set, every session runs the real five-agent War Room
+    (:func:`build_war_room`); otherwise the scripted demo drivers for that
+    contract. The orchestration graph is identical either way.
+    """
+    if live is not None:
+        client, config = live
+        return build_war_room(
+            client=client,
+            config=config,
+            simulation=simulation,
+            codebase=codebase,
+            memory=memory,
+            budget=BudgetConfig(max_iterations=2, memory_top_k=1),
+        )
+    if target == _VAULT:
+        return _build_vault_graph(simulation, codebase, memory)
+    return _build_billing_graph(simulation, codebase, memory)
+
+
 # --------------------------------------------------------------------------- #
 # Session execution
 # --------------------------------------------------------------------------- #
@@ -344,13 +374,18 @@ async def run_demo(
     memory: MemoryStore,
     responder: HumanResponder,
     console: Console | None = None,
+    live: tuple[QwenClient, QwenConfig] | None = None,
 ) -> DemoReport:
-    """Run both sessions + baseline + efficiency table; return the report."""
+    """Run both sessions + baseline + efficiency table; return the report.
+
+    With ``live`` set, both sessions run the real Qwen agents; otherwise the
+    deterministic demo drivers (the default, used by the golden-trace test).
+    """
     console = console or Console()
     report = DemoReport()
 
     console.rule("[bold]Session 1 — SubscriptionBilling (fee-spike congestion)")
-    billing = _build_billing_graph(simulation, codebase, memory)
+    billing = _live_or_demo_graph(_BILLING, simulation, codebase, memory, live)
     report.sessions.append(
         await _run_session(
             billing,
@@ -363,7 +398,7 @@ async def run_demo(
     )
 
     console.rule("[bold]Session 2 — YieldVault (cross-session memory)")
-    vault = _build_vault_graph(simulation, codebase, memory)
+    vault = _live_or_demo_graph(_VAULT, simulation, codebase, memory, live)
     report.sessions.append(
         await _run_session(
             vault,
@@ -463,6 +498,26 @@ def _build_engines() -> tuple[SimulationEngine, CodebaseEngine, MemoryStore]:
     return simulation, codebase, memory
 
 
+def _resolve_live(console: Console) -> tuple[QwenClient, QwenConfig] | None:
+    """Build the live Qwen client, or fall back to demo drivers if no creds.
+
+    Returns ``(client, config)`` when ``QWEN_API_KEY``/``QWEN_BASE_URL`` are set,
+    else ``None`` (with a clear notice) so the run proceeds on the deterministic
+    demo drivers — ``make dev`` therefore works today and lights up live the
+    moment credentials exist.
+    """
+    try:
+        config = QwenConfig.from_env()
+    except QwenConfigError as exc:
+        console.print(
+            f"[yellow]--live: no Qwen credentials[/] ({exc}) — "
+            "falling back to deterministic demo drivers."
+        )
+        return None
+    console.print("[bold green]--live: real Qwen agents[/]")
+    return QwenClient(config), config
+
+
 def main() -> None:
     """CLI entrypoint for ``make demo``."""
     parser = argparse.ArgumentParser(description="SENTINEL end-to-end demo (§12)")
@@ -471,6 +526,12 @@ def main() -> None:
         action="store_true",
         help="prompt a real human at the checkpoint (default: auto-approve)",
     )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="run the real Qwen agents (falls back to demo drivers if "
+        "QWEN_API_KEY/QWEN_BASE_URL are unset)",
+    )
     args = parser.parse_args()
 
     console = Console()
@@ -478,6 +539,7 @@ def main() -> None:
     responder: HumanResponder = (
         ConsoleResponder(console) if args.interactive else AutoApproveResponder()
     )
+    live = _resolve_live(console) if args.live else None
     try:
         report = asyncio.run(
             run_demo(
@@ -486,6 +548,7 @@ def main() -> None:
                 memory=memory,
                 responder=responder,
                 console=console,
+                live=live,
             )
         )
         artifact = _write_artifact(report)
