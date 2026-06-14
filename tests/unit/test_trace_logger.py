@@ -39,10 +39,11 @@ def test_every_demo_tag_renders_with_its_bracket(tag: DemoTag) -> None:
     assert line.startswith(f"[{tag.value}] s")
 
 
-def test_the_five_required_tags_exist() -> None:
+def test_the_required_tags_exist() -> None:
     assert {t.value for t in DemoTag} == {
         "SYSTEM DECISION",
         "ADVERSARY VETO",
+        "ARBITRATION",
         "CONSTRAINTS UNSATISFIED",
         "ANNOTATED RESIDUAL RISK",
         "HUMAN CHECKPOINT",

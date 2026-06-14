@@ -33,7 +33,9 @@ from sentinel.orchestrator.schema import (
     LessonsContext,
     Outcome,
     Proposal,
+    Resolution,
     RiskProfile,
+    RoundAdjudication,
     Veto,
     YieldAssessment,
     YieldVerdict,
@@ -129,6 +131,9 @@ class _LoopResult:
     # "topic guess" so §6.4 can showcase the memory that actually constrained
     # the audit, not the pre-simulation prefetch.
     finding_memory_ids: list[str]
+    # The Arbitrator's per-round conflict rulings (architecture.md §4.3) — the
+    # negotiation transcript surfaced for the human gate / UI (Track 3).
+    negotiation: list[RoundAdjudication]
 
 
 class RunResult(BaseModel):
@@ -152,6 +157,9 @@ class RunResult(BaseModel):
     # (the §6.4 cross-session signal), distinct from the weaker ingest-time
     # topic-guess folded into ``risk_profile.memory_records_used``.
     finding_memory_records: list[str] = Field(default_factory=list)
+    # The Arbitrator's per-round conflict rulings — the negotiation transcript
+    # (architecture.md §4.3); empty on a clean early-exit (no conflict arose).
+    negotiation: list[RoundAdjudication] = Field(default_factory=list)
 
 
 def _annotate_residual_risk(profile: RiskProfile) -> None:
@@ -171,6 +179,71 @@ def _annotate_residual_risk(profile: RiskProfile) -> None:
         residual_risk_pct=profile.residual_risk_pct,
         outcome=profile.outcome.value,
     )
+
+
+def _adjudicate(
+    assessment: YieldAssessment,
+    review: AdversaryReview,
+    run_id: str,
+    iteration: int,
+    *,
+    consensus: bool,
+    is_final: bool,
+) -> RoundAdjudication:
+    """Build + emit the Arbitrator's ruling on one round's conflict (§4.3, §10).
+
+    This is the Track 3 "resolve disagreements and execution conflicts" step made
+    explicit. The resolution is *derived* from the round's real positions and
+    evidence, never invented: a consensus reconciles the two agents; a standing
+    veto is upheld (or, on the final round, leaves the conflict unresolved — a
+    deadlock); a no-veto non-accept verdict asks for revision. The ruling cites
+    the round's ``SimulationMCP`` evidence (the Adversary's ``trace_ids``), so it
+    is sourced like every other claim (Golden Rule #1).
+    """
+    if consensus:
+        resolution = Resolution.RECONCILED
+        rationale = (
+            "Yield accepts and the Adversary clears the patch — positions reconciled."
+        )
+    elif review.vetoed and is_final:
+        resolution = Resolution.UNRESOLVED
+        rationale = (
+            f"No patch jointly satisfies Yield's ship goal and the Adversary's veto "
+            f"({review.reason}); deadlock — residual risk to be disclosed."
+        )
+    elif review.vetoed:
+        resolution = Resolution.VETO_UPHELD
+        rationale = (
+            f"Adversary veto upheld over Yield's '{assessment.verdict.value}' verdict: "
+            f"{review.reason}. The next round must satisfy this constraint."
+        )
+    else:
+        resolution = Resolution.REVISION_REQUIRED
+        rationale = (
+            f"No veto, but Yield's verdict is '{assessment.verdict.value}': "
+            f"{assessment.rationale}. Revision required before shipping."
+        )
+    adjudication = RoundAdjudication(
+        run_id=run_id,
+        iteration=iteration,
+        yield_verdict=assessment.verdict,
+        adversary_vetoed=review.vetoed,
+        resolution=resolution,
+        rationale=rationale,
+        trace_ids=list(review.trace_ids),
+    )
+    emit(
+        _log,
+        DemoTag.ARBITRATION,
+        f"round {iteration}: {resolution.value.replace('_', ' ')} — {rationale}",
+        run_id=run_id,
+        agent="arbitrator",
+        action="adjudicate",
+        trace_id=review.trace_ids[0],
+        iteration=iteration,
+        resolution=resolution.value,
+    )
+    return adjudication
 
 
 def _emit_proposal(proposal: Proposal, run_id: str, iteration: int) -> None:
@@ -319,6 +392,7 @@ class WarRoomGraph:
             unauditable,
             ledger,
             finding_memory_records=loop.finding_memory_ids,
+            negotiation=loop.negotiation,
         )
 
     # -- step 1: ingest ---------------------------------------------------- #
@@ -378,6 +452,7 @@ class WarRoomGraph:
         """Iterate propose → evaluate → simulate until consensus or the cap."""
         constraints = list(scan.lessons.constraints)
         finding_memory_ids: list[str] = []
+        negotiation: list[RoundAdjudication] = []
         last_veto = self._initial_veto(scan, run_id)
         final_proposal: Proposal | None = None
         # Seed with the initial-scan positions so they are always bound; each
@@ -409,7 +484,20 @@ class WarRoomGraph:
             )
             trace_ids += review.trace_ids
 
-            if assessment.verdict is YieldVerdict.ACCEPT and not review.vetoed:
+            consensus = assessment.verdict is YieldVerdict.ACCEPT and not review.vetoed
+            is_final = n == self._budget.max_iterations
+            negotiation.append(
+                _adjudicate(
+                    assessment,
+                    review,
+                    run_id,
+                    n,
+                    consensus=consensus,
+                    is_final=is_final,
+                )
+            )
+
+            if consensus:
                 outcome = Outcome.CONSENSUS
                 emit(
                     _log,
@@ -448,6 +536,7 @@ class WarRoomGraph:
             # Full accounting = ingest topic-guess + every finding-driven recall.
             memory_ids=memory_ids + finding_memory_ids,
             finding_memory_ids=finding_memory_ids,
+            negotiation=negotiation,
         )
 
     @staticmethod
@@ -558,6 +647,7 @@ class WarRoomGraph:
         unauditable: list[str],
         ledger: TokenLedger,
         finding_memory_records: list[str] | None = None,
+        negotiation: list[RoundAdjudication] | None = None,
     ) -> RunResult:
         """Assemble the RunResult, running the Baseline control if configured."""
         baseline: BaselineAudit | None = None
@@ -574,6 +664,7 @@ class WarRoomGraph:
             unauditable_functions=unauditable,
             baseline=baseline,
             finding_memory_records=_dedup(finding_memory_records or []),
+            negotiation=negotiation or [],
         )
 
 

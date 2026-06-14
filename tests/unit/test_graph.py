@@ -18,6 +18,7 @@ from sentinel.orchestrator.schema import (
     LessonsContext,
     Outcome,
     Proposal,
+    Resolution,
     RiskProfile,
     Severity,
     YieldAssessment,
@@ -376,3 +377,48 @@ def test_constraints_from_memory_feed_next_proposal_task() -> None:
     graph.run("x.sol", run_id="run-5")
     # Round 2's proposal task must mention the constraint pulled after round 1.
     assert any("finality under N blocks" in t for t in seen_tasks)
+
+
+# --------------------------------------------------------------------------- #
+# Negotiation / conflict resolution (architecture.md §4.3, Track 3)
+# --------------------------------------------------------------------------- #
+
+
+def test_consensus_round_is_recorded_as_reconciled() -> None:
+    graph, _ = _graph(
+        yields=[_yield(YieldVerdict.REVISE), _yield(YieldVerdict.ACCEPT)],
+        reviews=[
+            _review(vetoed=True, traces=["sim-scan-1"]),
+            _review(vetoed=False, traces=["sim-v1"]),
+        ],
+        proposals=[_proposal("patch-1", traces=["sim-scan-1"])],
+        draft=_draft(),
+    )
+    result = graph.run("x.sol", run_id="run-recon")
+    assert [a.resolution for a in result.negotiation] == [Resolution.RECONCILED]
+    # The ruling is sourced (Rule 1) — it cites the round's clearance trace.
+    assert result.negotiation[0].trace_ids == ["sim-v1"]
+
+
+def test_deadlock_records_veto_upheld_then_unresolved() -> None:
+    graph, _ = _graph(
+        yields=[_yield(YieldVerdict.REVISE)] * 3,
+        reviews=[_review(vetoed=True, traces=[f"sim-{i}"]) for i in range(3)],
+        proposals=[_proposal(f"patch-{i}", traces=[f"sim-p{i}"]) for i in range(2)],
+        draft=_draft(),
+        max_iterations=2,
+    )
+    result = graph.run("x.sol", run_id="run-deadlock")
+    resolutions = [a.resolution for a in result.negotiation]
+    # Two rounds: the first upholds the veto, the final one is a deadlock.
+    assert resolutions == [Resolution.VETO_UPHELD, Resolution.UNRESOLVED]
+    assert all(a.trace_ids for a in result.negotiation)  # every ruling is sourced
+
+
+def test_early_exit_has_no_negotiation() -> None:
+    graph, _ = _graph(
+        yields=[_yield(YieldVerdict.ACCEPT)],
+        reviews=[_review(vetoed=False, traces=["sim-scan-1"])],
+    )
+    result = graph.run("x.sol", run_id="run-exit")
+    assert result.negotiation == []  # no conflict arose

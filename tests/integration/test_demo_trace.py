@@ -7,9 +7,9 @@ architecture.md §10 the demo trace is non-deterministic in phrasing (and the
 agents emit fresh ``trace_id``\\s every run), so asserting on wording would be
 brittle and wrong; instead we assert the load-bearing invariants:
 
-* all five §10 demo tags are emitted from the same structured stream;
-* every claim-bearing demo event (``ADVERSARY VETO``, ``ANNOTATED RESIDUAL
-  RISK``) carries a non-null ``trace_id`` (Golden Rule #1);
+* all §10 demo tags are emitted from the same structured stream;
+* every claim-bearing demo event (``ADVERSARY VETO``, ``ARBITRATION``,
+  ``ANNOTATED RESIDUAL RISK``) carries a non-null ``trace_id`` (Golden Rule #1);
 * every demo-tagged event conforms to the :class:`TraceEvent` §10 schema and
   renders to a bracketed ``[TAG] …`` line from that same event;
 * cross-session memory genuinely discriminates (§6.4): the finding-driven
@@ -60,7 +60,11 @@ _ACCESS_CONTROL_ID = "00000000-0000-0000-0000-0000000000a2"
 # The claim-bearing demo tags: anything asserting a simulation fact must cite a
 # trace (Golden Rule #1). SYSTEM DECISION / CONSTRAINTS UNSATISFIED / HUMAN
 # CHECKPOINT are control-flow events and may legitimately have no trace_id.
-_CLAIM_TAGS = {DemoTag.ADVERSARY_VETO.value, DemoTag.ANNOTATED_RESIDUAL_RISK.value}
+_CLAIM_TAGS = {
+    DemoTag.ADVERSARY_VETO.value,
+    DemoTag.ARBITRATION.value,
+    DemoTag.ANNOTATED_RESIDUAL_RISK.value,
+}
 
 
 @pytest.fixture(scope="module")
@@ -104,7 +108,7 @@ def _demo_events(logs: list[dict[str, object]]) -> list[dict[str, object]]:
     return [e for e in logs if e.get("demo_tag")]
 
 
-def test_all_five_demo_tags_are_emitted(
+def test_all_demo_tags_are_emitted(
     demo_run: tuple[list[dict[str, object]], DemoReport],
 ) -> None:
     logs, _ = demo_run

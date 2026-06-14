@@ -41,10 +41,11 @@ _SINKS: list[Callable[[Mapping[str, Any]], None]] = []
 
 
 class DemoTag(StrEnum):
-    """The five demo-trace tags rendered from structured events (§10)."""
+    """The demo-trace tags rendered from structured events (§10)."""
 
     SYSTEM_DECISION = "SYSTEM DECISION"
     ADVERSARY_VETO = "ADVERSARY VETO"
+    ARBITRATION = "ARBITRATION"
     CONSTRAINTS_UNSATISFIED = "CONSTRAINTS UNSATISFIED"
     ANNOTATED_RESIDUAL_RISK = "ANNOTATED RESIDUAL RISK"
     HUMAN_CHECKPOINT = "HUMAN CHECKPOINT"

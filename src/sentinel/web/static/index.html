@@ -174,6 +174,7 @@ button{font-family:inherit;cursor:pointer}
 }
 .stamp.term{background:var(--arb)}
 .stamp.risk{background:var(--halt)}
+.stamp.arb{background:var(--arb)}
 @keyframes stampIn{0%{transform:scale(1.7) rotate(-7deg);opacity:0}60%{transform:scale(.94) rotate(-7deg);opacity:1}100%{transform:scale(1) rotate(-5deg);opacity:1}}
 @keyframes cardIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 .flash{animation:flashFx .9s ease both}
@@ -697,6 +698,7 @@ function renderTrace(f){
   const isVeto = f.demo_tag==='ADVERSARY VETO';
   const isTerm = f.demo_tag==='CONSTRAINTS UNSATISFIED';
   const isRisk = f.demo_tag==='ANNOTATED RESIDUAL RISK';
+  const isArb  = f.demo_tag==='ARBITRATION';
   if(isVeto) card.classList.add('veto','flash');
 
   let head = `<div class="chead"><span class="ai">${AGENT_SVG[agentKey]}</span><span class="who">${AGENTS[agentKey].name}</span>`;
@@ -708,6 +710,7 @@ function renderTrace(f){
   if(isVeto){ const s=el('div','stamp','⛔ VETO'); card.appendChild(s); }
   else if(isTerm){ const s=el('div','stamp term','⊘ TERMINATE'); card.appendChild(s); }
   else if(isRisk){ const s=el('div','stamp risk','◆ RISK'); card.appendChild(s); }
+  else if(isArb){ const s=el('div','stamp arb','⚖ RULING'); card.appendChild(s); }
 
   if(f.trace_id){ const c=evChips([f.trace_id]); if(c) card.appendChild(c); }
 
@@ -847,6 +850,13 @@ function buildGateBody(p){
   const reasons = p.gated_reasons || [];
   const mem = p.memory_records_used || risk.memory_records_used || [];
   const tags = p.topic_tags || [];
+  const negotiation = p.negotiation || [];
+  const RES_META = {
+    reconciled:{t:'RECONCILED',c:'var(--yield-deep)',bg:'var(--yield-tint)'},
+    veto_upheld:{t:'VETO UPHELD',c:'var(--adv-deep)',bg:'var(--adv-tint)'},
+    revision_required:{t:'REVISION REQUIRED',c:'var(--halt)',bg:'var(--halt-tint)'},
+    unresolved:{t:'UNRESOLVED',c:'var(--adv-deep)',bg:'var(--adv-tint)'},
+  };
 
   const leftHtml = `
     <div>
@@ -877,6 +887,17 @@ function buildGateBody(p){
           ${review.evidence?`<div class="ev-line">${esc(review.evidence)}</div>`:''}
           ${gateChips(review.trace_ids)}
         </div>
+      </div>`:''}
+      ${negotiation.length?`
+      <div class="gsec">
+        <div class="gl"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3v16M5 19h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 6 6 8M12 6l6 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span class="label">How the agents resolved it</span></div>
+        <div class="reasons">${negotiation.map(a=>{
+          const m=RES_META[a.resolution]||{t:String(a.resolution||'').toUpperCase(),c:'var(--ink)',bg:'var(--hair-2)'};
+          return `<div class="reason" style="background:${m.bg};border-color:transparent">
+            <span class="n">r${esc(a.iteration)}</span>
+            <span><b style="color:${m.c}">${m.t}</b> — ${esc(a.rationale||'')}</span>
+          </div>`;
+        }).join('')}</div>
       </div>`:''}
     </div>`;
 

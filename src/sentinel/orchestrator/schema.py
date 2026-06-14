@@ -205,6 +205,39 @@ class AdversaryReview(BaseModel):
         )
 
 
+class Resolution(StrEnum):
+    """How a round's Yield-vs-Adversary conflict was resolved (architecture.md §4.3)."""
+
+    RECONCILED = "reconciled"  # consensus — Yield accepts, Adversary clears
+    VETO_UPHELD = "veto_upheld"  # Adversary's evidence overrides Yield; revise
+    REVISION_REQUIRED = "revision_required"  # Yield itself wants changes (no veto)
+    UNRESOLVED = "unresolved"  # final round, no joint solution — deadlock
+
+
+class RoundAdjudication(BaseModel):
+    """The Arbitrator's ruling on one round's Yield-vs-Adversary conflict (§4.3).
+
+    Makes conflict resolution explicit and recordable — the Track 3 "how they
+    resolve disagreements and execution conflicts" requirement. Like every claim
+    object it is *sourced*: the ruling cites the round's ``SimulationMCP``
+    evidence (the Adversary's ``trace_ids``), so an unsourced adjudication cannot
+    be constructed (Golden Rule #1).
+    """
+
+    run_id: str
+    iteration: int = Field(ge=0)
+    yield_verdict: YieldVerdict
+    adversary_vetoed: bool
+    resolution: Resolution
+    rationale: str
+    trace_ids: list[str]
+
+    @field_validator("trace_ids")
+    @classmethod
+    def _check_trace_ids(cls, value: list[str]) -> list[str]:
+        return _require_non_empty_trace_ids(value)
+
+
 class Constraint(BaseModel):
     """A single retrieved lesson, reframed as a constraint (architecture.md §6.1).
 

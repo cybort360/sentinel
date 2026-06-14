@@ -38,6 +38,7 @@ from sentinel.orchestrator.schema import (
     Outcome,
     Proposal,
     RiskProfile,
+    RoundAdjudication,
     Severity,
     YieldAssessment,
 )
@@ -90,8 +91,9 @@ class DecisionPacket(BaseModel):
     """What the human sees at the gate (architecture.md §7.2).
 
     Carries the proposal under consideration, the closing Yield/Adversary
-    positions (with their ``SimulationMCP`` trace ids), the ``RiskProfile``, and
-    the memory records that informed the proposal.
+    positions (with their ``SimulationMCP`` trace ids), the ``RiskProfile``, the
+    memory records that informed the proposal, and the per-round negotiation
+    transcript (how each Yield/Adversary conflict was resolved — §4.3).
     """
 
     run_id: str
@@ -103,6 +105,7 @@ class DecisionPacket(BaseModel):
     risk_profile: RiskProfile
     memory_records_used: list[str]
     topic_tags: list[str]
+    negotiation: list[RoundAdjudication] = []
 
 
 class CheckpointOutcome(BaseModel):
@@ -180,6 +183,7 @@ def build_decision_packet(
         risk_profile=run_result.risk_profile,
         memory_records_used=run_result.risk_profile.memory_records_used,
         topic_tags=topic_tags or ["audit"],
+        negotiation=run_result.negotiation,
     )
 
 

@@ -20,9 +20,12 @@ from sentinel.orchestrator.schema import (
     AgentRole,
     Outcome,
     Proposal,
+    Resolution,
     RiskProfile,
+    RoundAdjudication,
     Severity,
     Veto,
+    YieldVerdict,
 )
 
 
@@ -71,13 +74,26 @@ def _adversary_review(trace_ids: list[str]) -> AdversaryReview:
     )
 
 
+def _adjudication(trace_ids: list[str]) -> RoundAdjudication:
+    return RoundAdjudication(
+        run_id="r1",
+        iteration=1,
+        yield_verdict=YieldVerdict.ACCEPT,
+        adversary_vetoed=True,
+        resolution=Resolution.VETO_UPHELD,
+        rationale="veto upheld over ship verdict",
+        trace_ids=trace_ids,
+    )
+
+
 _BUILDERS: dict[str, Callable[[list[str]], BaseModel]] = {
     "Proposal": _proposal,
     "Veto": _veto,
     "RiskProfile": _risk_profile,
     "AdversaryReview": _adversary_review,
+    "RoundAdjudication": _adjudication,
 }
-_CLAIM_MODELS = [Proposal, Veto, RiskProfile, AdversaryReview]
+_CLAIM_MODELS = [Proposal, Veto, RiskProfile, AdversaryReview, RoundAdjudication]
 
 
 @pytest.mark.parametrize("name", list(_BUILDERS))
