@@ -60,3 +60,34 @@ class ResetResult(SimResult):
 
     ok: bool
     error: str | None = None
+
+
+class ExploitResult(SimResult):
+    """Outcome of running a known exploit against one contract (architecture.md §5.2).
+
+    ``exploited`` is the verdict: did the attack actually drain more than it
+    staked (vulnerable) or did it revert (patched)?
+    """
+
+    exploit: str
+    contract: str
+    exploited: bool
+    reverted: bool
+    drained_wei: int
+
+
+class PatchVerification(SimResult):
+    """Before/after proof that a proposed patch closes a hole (architecture.md §5.2).
+
+    Runs the same exploit against the vulnerable contract and the patched one.
+    ``fix_verified`` is true only when the exploit succeeded on the former and
+    failed on the latter — i.e. the patch demonstrably closed the hole, not just
+    claimed to.
+    """
+
+    exploit: str
+    vulnerable_contract: str
+    fixed_contract: str
+    before: ExploitResult
+    after: ExploitResult
+    fix_verified: bool

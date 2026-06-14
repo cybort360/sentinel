@@ -106,3 +106,15 @@ def test_reset_fork_over_mcp(
     result = client.reset_fork()
     assert result.ok
     assert result.trace_id
+
+
+def test_verify_patch_over_mcp(
+    sandbox: tuple[SimulationMCPClient, SimulationEngine],
+) -> None:
+    client, _ = sandbox
+    v = client.verify_patch(
+        "SubscriptionBilling", "SubscriptionBillingGuarded", "reentrancy_drain"
+    )
+    assert v.before.exploited and not v.after.exploited
+    assert v.fix_verified
+    assert v.trace_id

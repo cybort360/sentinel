@@ -35,7 +35,9 @@ from mcp.client.stdio import stdio_client
 
 from sentinel.mcp_servers.simulation_mcp.results import (
     DeployResult,
+    ExploitResult,
     GasResult,
+    PatchVerification,
     ResetResult,
     RevertRateResult,
     TxSpikeResult,
@@ -227,6 +229,26 @@ class SimulationMCPClient:
     def reset_fork(self) -> ResetResult:
         """Reset the fork between rounds via the MCP server."""
         return ResetResult(**self._call("reset_fork", {}))
+
+    def run_exploit(self, target_contract: str, exploit: str) -> ExploitResult:
+        """Run a known exploit against a contract via the MCP server."""
+        return ExploitResult(
+            **self._call(
+                "run_exploit",
+                {"target_contract": target_contract, "exploit": exploit},
+            )
+        )
+
+    def verify_patch(
+        self, vulnerable: str, fixed: str, exploit: str
+    ) -> PatchVerification:
+        """Run the before/after patch verification via the MCP server."""
+        return PatchVerification(
+            **self._call(
+                "verify_patch",
+                {"vulnerable": vulnerable, "fixed": fixed, "exploit": exploit},
+            )
+        )
 
     # -- teardown ----------------------------------------------------------- #
 

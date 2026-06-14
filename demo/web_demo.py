@@ -133,6 +133,22 @@ def main() -> None:
         bus.publish(
             {"kind": "efficiency", "rows": _efficiency_rows(efficiency, baseline_elapsed)}
         )
+        # Prove the reentrancy fix actually closes the hole (before/after exploit).
+        v = simulation.verify_patch(
+            "SubscriptionBilling", "SubscriptionBillingGuarded", "reentrancy_drain"
+        )
+        bus.publish(
+            {
+                "kind": "patch_verified",
+                "exploit": v.exploit,
+                "vulnerable": v.vulnerable_contract,
+                "fixed": v.fixed_contract,
+                "drained_wei": v.before.drained_wei,
+                "before_exploited": v.before.exploited,
+                "after_exploited": v.after.exploited,
+                "fix_verified": v.fix_verified,
+            }
+        )
         bus.publish(
             {
                 "kind": "cross_session",

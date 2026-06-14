@@ -63,6 +63,18 @@ gap is structural: a single-pass source reader cannot see a simulation-discovere
 DoS or quantify residual risk. Scoring lives in
 `src/sentinel/orchestrator/benchmark.py`; adding contracts grows the corpus.
 
+## Patch verification (prove a fix, don't just suggest one)
+
+```bash
+make verify     # re-runs the exact exploit against the vulnerable + patched contract
+```
+
+Deploys both contracts and runs the same reentrancy attack on each: it drains
+**0.3 ETH** from `SubscriptionBilling` and is **blocked (reverts)** on the
+reentrancy-guarded patch — a real before/after read off a live Anvil run, not a
+claim. Exposed as the `verify_patch` MCP tool
+(`src/sentinel/mcp_servers/simulation_mcp/`).
+
 A single-page view of the same audit: the War Room timeline streams live (SSE),
 every cited number is one click from the real `SimulationMCP` result behind it
 (Golden Rule #1, made visible), and the Human Checkpoint is driven by a button

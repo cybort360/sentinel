@@ -102,10 +102,50 @@ def reset_fork() -> dict[str, Any]:
     return _get_engine().reset_fork().model_dump()
 
 
+def run_exploit(target_contract: str, exploit: str) -> dict[str, Any]:
+    """Run a known exploit against a contract and report whether it landed.
+
+    Args:
+        target_contract: Contract to attack, e.g. "SubscriptionBilling".
+        exploit: Registered exploit name, e.g. "reentrancy_drain".
+
+    Returns:
+        A dict with `exploited`, `reverted`, `drained_wei`, and a `trace_id`.
+    """
+    return _get_engine().run_exploit(target_contract, exploit).model_dump()
+
+
+def verify_patch(vulnerable: str, fixed: str, exploit: str) -> dict[str, Any]:
+    """Prove a patch closes a hole: run the same exploit before and after.
+
+    Runs `exploit` against the `vulnerable` contract and the `fixed` one. The
+    fix is verified only if the attack lands on the former and is blocked on the
+    latter — a real before/after, not a claim.
+
+    Args:
+        vulnerable: The unpatched contract (exploit should succeed here).
+        fixed: The patched contract (exploit should be blocked here).
+        exploit: Registered exploit name, e.g. "reentrancy_drain".
+
+    Returns:
+        A dict with `before`, `after`, `fix_verified`, and a `trace_id`.
+    """
+    return _get_engine().verify_patch(vulnerable, fixed, exploit).model_dump()
+
+
 def build_server() -> FastMCP:
     """Construct the FastMCP app with all five SimulationMCP tools registered."""
     mcp = FastMCP("sentinel-simulation")
-    for fn in (deploy_to_fork, measure_gas, run_tx_spike, get_revert_rate, reset_fork):
+    tools = (
+        deploy_to_fork,
+        measure_gas,
+        run_tx_spike,
+        get_revert_rate,
+        reset_fork,
+        run_exploit,
+        verify_patch,
+    )
+    for fn in tools:
         mcp.add_tool(fn, description=fn.__doc__)
     return mcp
 

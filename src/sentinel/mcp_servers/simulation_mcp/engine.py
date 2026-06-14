@@ -26,9 +26,12 @@ from sentinel.mcp_servers.simulation_mcp.config import (
     SimulationDegradedError,
     assert_local_rpc,
 )
+from sentinel.mcp_servers.simulation_mcp.exploits import get_exploit
 from sentinel.mcp_servers.simulation_mcp.results import (
     DeployResult,
+    ExploitResult,
     GasResult,
+    PatchVerification,
     ResetResult,
     RevertRateResult,
     TxSpikeResult,
@@ -291,6 +294,97 @@ class SimulationEngine:
             return ResetResult(trace_id=trace_id, ok=False, error=str(exc))
         trace_id = self._record("reset_fork", summary="fork reset", ok=True)
         return ResetResult(trace_id=trace_id, ok=True)
+
+    def run_exploit(self, target_contract: str, exploit: str) -> ExploitResult:
+        """Run a known exploit against a contract and report whether it landed.
+
+        Args:
+            target_contract: The contract to attack (e.g. ``"SubscriptionBilling"``).
+            exploit: Registered exploit name (e.g. ``"reentrancy_drain"``).
+
+        Returns:
+            An :class:`ExploitResult` — ``exploited`` is the verdict, with the
+            wei drained and whether the attack reverted, plus a trace id.
+
+        Raises:
+            SimulationDegradedError: If the exploit cannot run (missing artifact,
+                unknown exploit).
+        """
+        try:
+            exploited, drained, reverted = get_exploit(exploit)(self, target_contract)
+        except (KeyError, SimulationDegradedError) as exc:
+            self._log.error(
+                "[DEGRADED] run_exploit failed",
+                contract=target_contract,
+                exploit=exploit,
+            )
+            raise SimulationDegradedError(str(exc)) from exc
+        verdict = (
+            "exploited" if exploited else ("reverted" if reverted else "no effect")
+        )
+        summary = f"{exploit} vs {target_contract}: {verdict} (drained {drained} wei)"
+        trace_id = self._record(
+            "run_exploit",
+            summary=summary,
+            exploit=exploit,
+            contract=target_contract,
+            exploited=exploited,
+            reverted=reverted,
+            drained_wei=drained,
+        )
+        return ExploitResult(
+            trace_id=trace_id,
+            exploit=exploit,
+            contract=target_contract,
+            exploited=exploited,
+            reverted=reverted,
+            drained_wei=drained,
+        )
+
+    def verify_patch(
+        self, vulnerable: str, fixed: str, exploit: str
+    ) -> PatchVerification:
+        """Prove a patch closes a hole: run the same exploit before and after.
+
+        Runs ``exploit`` against the ``vulnerable`` contract and the ``fixed``
+        one. The fix is verified only if the attack lands on the former and is
+        blocked on the latter — a real before/after, not a claim.
+
+        Args:
+            vulnerable: The unpatched contract (the exploit should succeed here).
+            fixed: The patched contract (the exploit should be blocked here).
+            exploit: Registered exploit name.
+
+        Returns:
+            A :class:`PatchVerification` carrying both runs and ``fix_verified``.
+        """
+        before = self.run_exploit(vulnerable, exploit)
+        self.reset_fork()
+        after = self.run_exploit(fixed, exploit)
+        fix_verified = before.exploited and not after.exploited
+        before_s = "exploited" if before.exploited else "safe"
+        after_s = "blocked" if not after.exploited else "still exploited"
+        verdict_s = "FIX VERIFIED" if fix_verified else "NOT VERIFIED"
+        summary = (
+            f"{exploit}: {vulnerable} {before_s} -> {fixed} {after_s} ({verdict_s})"
+        )
+        trace_id = self._record(
+            "verify_patch",
+            summary=summary,
+            exploit=exploit,
+            vulnerable_contract=vulnerable,
+            fixed_contract=fixed,
+            fix_verified=fix_verified,
+        )
+        return PatchVerification(
+            trace_id=trace_id,
+            exploit=exploit,
+            vulnerable_contract=vulnerable,
+            fixed_contract=fixed,
+            before=before,
+            after=after,
+            fix_verified=fix_verified,
+        )
 
     # -- internals ------------------------------------------------------------
 

@@ -1003,6 +1003,29 @@ function renderCrossSession(d){
       ${d.differ?'Records differ — generalizes across contracts':'Records identical'}
     </div>`;
 }
+function renderPatchVerified(f){
+  const r = ensureResults();
+  let card = $('#patchCard');
+  if(!card){
+    card = el('div','pcard');
+    card.id='patchCard';
+    card.style.gridColumn='1/-1';
+    $('.payoff', r).appendChild(card);
+  }
+  const eth = (f.drained_wei/1e18).toFixed(3);
+  const ok = !!f.fix_verified;
+  card.style.borderColor = ok ? 'var(--yield)' : 'var(--adv)';
+  card.innerHTML = `
+    <div class="ph"><span class="label">Patch verification — ${esc(f.exploit||'')}</span>
+      <span class="badge" style="background:${ok?'var(--yield-tint)':'var(--adv-tint)'};color:${ok?'var(--yield-deep)':'var(--adv-deep)'}">${ok?'✓ FIX VERIFIED':'✗ NOT VERIFIED'}</span></div>
+    <div class="mem">
+      <div class="verdict">The same reentrancy exploit was re-run against both contracts on a live fork — proving the fix, not just suggesting it.</div>
+      <div class="recs">
+        <div class="mrec" style="border-color:var(--adv)"><span class="rl">vulnerable</span><span class="rid">${esc(f.vulnerable||'')}</span><span class="rtag" style="color:var(--adv-deep)">drained ${eth} ETH</span></div>
+        <div class="mrec" style="border-color:var(--yield)"><span class="rl">patched</span><span class="rid">${esc(f.fixed||'')}</span><span class="rtag" style="color:var(--yield-deep)">attack reverted</span></div>
+      </div>
+    </div>`;
+}
 function renderRunComplete(f){
   setState('done', State.mode==='demo' ? 'Run complete (demo)' : 'Run complete');
   updateTelem({risk:f.residual_risk_pct, outcome:f.outcome});
@@ -1032,6 +1055,7 @@ function dispatch(f){
     case 'run_complete': renderRunComplete(f); break;
     case 'efficiency': renderEfficiency(f.rows||[]); break;
     case 'cross_session': renderCrossSession(f); break;
+    case 'patch_verified': renderPatchVerified(f); break;
     case 'run_error':
       setState('halted','Error'); toast('Run error: '+(f.error||'unknown'),'#D81E3F'); break;
     case 'all_complete':

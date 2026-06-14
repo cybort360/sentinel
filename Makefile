@@ -5,7 +5,7 @@
 # uv installs to ~/.local/bin; make sure it's reachable inside recipes.
 export PATH := $(HOME)/.local/bin:$(PATH)
 
-.PHONY: setup run run-demo run-web dev bench check check-integration build-sandbox demo web docker-build docker-up deploy help
+.PHONY: setup run run-demo run-web dev bench verify check check-integration build-sandbox demo web docker-build docker-up deploy help
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -53,6 +53,9 @@ web: ## Serve the War Room web UI at :8088 (auto-starts/stops the sandbox)
 
 bench: ## Run the efficiency benchmark (Society vs single-agent Baseline) — auto-sandbox
 	@bash sandbox/scripts/with_sandbox.sh uv run python -m demo.benchmark
+
+verify: ## Prove a fix closes the hole — re-run the exploit before/after — auto-sandbox
+	@bash sandbox/scripts/with_sandbox.sh uv run python -m demo.verify_patch
 
 docker-build: ## Build the docker-compose stack image
 	docker compose build
