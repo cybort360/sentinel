@@ -13,6 +13,83 @@ sub-tracks.
 - **How to deploy + record the Alibaba Cloud verification:** see
   [`deploy/DEPLOY.md`](deploy/DEPLOY.md).
 
+## Architecture
+
+Five Qwen-backed agents argue inside a War Room orchestrator; every factual
+claim is sourced from a real MCP tool call (Golden Rule 1), and any apply
+decision blocks on a human checkpoint (Golden Rule 2). Source:
+[`docs/architecture.mmd`](docs/architecture.mmd) ·
+PNG: [`docs/architecture.png`](docs/architecture.png).
+
+```mermaid
+flowchart TB
+  subgraph FE["Frontend"]
+    direction LR
+    WEB["Web War Room UI<br/>live SSE trace · evidence drill-down · browser checkpoint"]
+    CLI["CLI<br/>make run · demo · bench · verify"]
+  end
+  subgraph QC["Qwen Cloud — Alibaba Model Studio (OpenAI-compatible API)"]
+    direction LR
+    QM1["qwen3-coder-plus"]
+    QM2["qwen3-max-thinking"]
+    QM3["qwen3-max"]
+    QM4["qwen-plus"]
+  end
+  subgraph ORCH["SENTINEL Orchestrator — War Room graph"]
+    direction TB
+    FLOW["Control flow<br/>ingest → parallel scan → propose · veto · <b>adjudicate</b> loop → RiskProfile"]
+    subgraph SOC["Agent Society — Qwen function-calling"]
+      direction LR
+      YA["Yield<br/>optimizer"]
+      AA["Adversary<br/>red team · veto"]
+      ARB["Arbitrator<br/>judge · synthesize"]
+      LA["Lessons<br/>memory"]
+      BA["Baseline<br/>single-pass control"]
+    end
+    HCP{{"Human Checkpoint<br/>blocking gate"}}
+  end
+  subgraph MCP["Custom MCP Servers — stdio / streamable-http"]
+    direction LR
+    CMCP["CodebaseMCP<br/>read · propose · diff · apply"]
+    SMCP["SimulationMCP<br/>deploy · gas · revert · exploit · verify_patch"]
+    MMCP["MemoryMCP<br/>query · write · decay"]
+  end
+  subgraph DATA["Sandbox & Data"]
+    direction LR
+    ANVIL["Anvil EVM fork<br/>Foundry · local-only (Rule 3)"]
+    GITWC["Git working copy<br/>staged patches"]
+    MEMDB[("SQLite + sqlite-vec<br/>decaying memory store")]
+  end
+  YA <--> QM1
+  AA <--> QM2
+  ARB <--> QM3
+  LA <--> QM4
+  BA <--> QM3
+  SOC --> FLOW --> HCP
+  YA -->|read| CMCP
+  BA -->|read| CMCP
+  ARB -->|stage patch| CMCP
+  AA -->|"every claim → trace_id (Rule 1)"| SMCP
+  LA -->|recall / post-mortem| MMCP
+  CMCP --> GITWC
+  SMCP --> ANVIL
+  MMCP --> MEMDB
+  HCP -->|approved| CMCP
+  FLOW -->|"§10 structured trace (SSE)"| FE
+  FE -->|"run audit / approve"| FLOW
+
+  classDef qwen fill:#FFF3E0,stroke:#FB8C00,color:#5D4037;
+  classDef orch fill:#ECEBFC,stroke:#4B45D6,color:#36309F;
+  classDef mcp fill:#E7F6F1,stroke:#0E8A6E,color:#0A6A55;
+  classDef data fill:#EEF1F5,stroke:#5B6573,color:#39414E;
+  classDef fe fill:#E3F2FD,stroke:#2563EB,color:#14304F;
+  class QM1,QM2,QM3,QM4 qwen;
+  class YA,AA,ARB,LA,BA,FLOW,HCP orch;
+  class CMCP,SMCP,MMCP mcp;
+  class ANVIL,GITWC,MEMDB data;
+  class WEB,CLI fe;
+```
+
 ## Quick start
 
 ```bash
