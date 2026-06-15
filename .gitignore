@@ -30,3 +30,6 @@ demo/scenarios/patch_verification.json
 # Local debug/inspection artifacts (Playwright MCP, screenshots)
 .playwright-mcp/
 warroom-fixed.png
+
+# Devpost submission pack — kept local, not published in the repo
+docs/SUBMISSION.md
