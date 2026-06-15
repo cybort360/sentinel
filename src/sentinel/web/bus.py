@@ -36,6 +36,10 @@ class TraceBus:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._subscribers: set[asyncio.Queue[Event]] = set()
         self._replay: deque[Event] = deque(maxlen=replay_size)
+        # Monotonic per-event id. Replayed events keep their original ``_seq`` so a
+        # reconnecting client can drop anything it has already rendered — this is
+        # what stops EventSource auto-reconnects from duplicating the timeline.
+        self._seq = 0
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Bind the event loop that owns delivery (called at app startup)."""
@@ -46,15 +50,21 @@ class TraceBus:
         loop = self._loop
         if loop is None:
             # Pre-startup: no live subscribers yet, just retain for replay.
-            self._replay.append(event)
+            self._replay.append(self._stamp(event))
             return
         loop.call_soon_threadsafe(self._publish_on_loop, event)
 
+    def _stamp(self, event: Event) -> Event:
+        """Attach a monotonic ``_seq`` so replay is idempotent for clients."""
+        self._seq += 1
+        return {**event, "_seq": self._seq}
+
     def _publish_on_loop(self, event: Event) -> None:
         """Fan an event out to every subscriber (runs on the loop thread)."""
-        self._replay.append(event)
+        stamped = self._stamp(event)
+        self._replay.append(stamped)
         for queue in self._subscribers:
-            queue.put_nowait(event)
+            queue.put_nowait(stamped)
 
     async def subscribe(self) -> AsyncGenerator[Event, None]:
         """Yield events as they arrive, after replaying the recent backlog.

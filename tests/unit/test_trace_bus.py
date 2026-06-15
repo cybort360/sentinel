@@ -24,6 +24,35 @@ async def _delivers_live() -> None:
     await stream.aclose()
 
 
+def test_replay_keeps_stable_seq_so_reconnects_dont_duplicate() -> None:
+    asyncio.run(_stable_seq())
+
+
+async def _stable_seq() -> None:
+    # Events get a monotonic _seq; replay preserves it, so a reconnecting client
+    # tracking the highest _seq it has seen drops the re-sent backlog (the fix for
+    # the endless-scroll duplication on EventSource auto-reconnect).
+    bus = TraceBus()
+    bus.bind_loop(asyncio.get_running_loop())
+    bus.publish({"kind": "trace", "summary": "a"})
+    bus.publish({"kind": "trace", "summary": "b"})
+    await asyncio.sleep(0.02)  # let call_soon_threadsafe deliver to the replay buffer
+
+    async def replayed_seqs() -> list[int]:
+        stream = bus.subscribe()
+        out = [
+            (await asyncio.wait_for(stream.__anext__(), timeout=1.0))["_seq"]
+            for _ in range(2)
+        ]
+        await stream.aclose()
+        return out
+
+    first = await replayed_seqs()
+    second = await replayed_seqs()  # a "reconnect"
+    assert first == [1, 2]
+    assert second == first  # same seqs -> a client with lastSeq=2 skips them all
+
+
 def test_bus_replays_backlog_to_late_subscriber() -> None:
     asyncio.run(_replays_backlog())
 

@@ -1102,11 +1102,21 @@ function normalizeTrace(t){ const o={trace_id:t.trace_id, tool:t.tool, summary:t
 
 /* ---------------- SSE connection + backend detection ---------------- */
 let evtSource=null;
+// Highest event seq already rendered. The server replays its buffer on every
+// (re)connect; skipping events we've seen makes EventSource auto-reconnects
+// idempotent instead of duplicating the whole timeline.
+let lastSeq=0;
 function connectSSE(){
   if(evtSource){ try{evtSource.close();}catch(e){} }
   try{
     evtSource = new EventSource('/events');
-    evtSource.onmessage = e=>{ if(!e.data || e.data[0]===':') return; let f; try{f=JSON.parse(e.data);}catch(_){return;} if(f && f.kind) dispatch(f); };
+    evtSource.onmessage = e=>{
+      if(!e.data || e.data[0]===':') return;
+      let f; try{f=JSON.parse(e.data);}catch(_){return;}
+      if(!f || !f.kind) return;
+      if(f._seq!=null){ if(f._seq<=lastSeq) return; lastSeq=f._seq; }
+      dispatch(f);
+    };
     evtSource.onerror = ()=>{ /* EventSource auto-retries; status stays as-is */ };
   }catch(e){ /* ignore */ }
 }
