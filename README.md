@@ -8,8 +8,8 @@ Submitted to the Qwen Cloud Global AI Hackathon, Track 3 (Agent Society)
 primary, with Track 1 (Memory) and Track 4 (Autopilot) as integrated
 sub-tracks.
 
-- **What it is / how it works:** see [`architecture.md`](architecture.md).
-- **How we build it (rules, tooling, DoD):** see [`CLAUDE.md`](CLAUDE.md).
+- **What it is / how it works:** see the [Architecture](#architecture) section
+  below and [`docs/architecture.png`](docs/architecture.png).
 - **How to deploy + record the Alibaba Cloud verification:** see
   [`deploy/DEPLOY.md`](deploy/DEPLOY.md).
 
@@ -99,9 +99,8 @@ make run        # the real thing — live Qwen agents (needs QWEN_* in .env)
 
 Both are one command: they install dependencies and run the two-session War Room
 against a live Anvil sandbox (real simulation data, real institutional memory, a
-real blocking human checkpoint), then print the
-[`architecture.md`](architecture.md) §11 efficiency table. **The sandbox is
-started and stopped automatically** — no manual setup or teardown.
+real blocking human checkpoint), then print the §11 efficiency table. **The
+sandbox is started and stopped automatically** — no manual setup or teardown.
 
 - **`make run-demo`** uses deterministic demo drivers that make *real*
   `SimulationMCP` calls (Golden Rule 1 preserved) — fully reproducible, no
@@ -156,8 +155,7 @@ A single-page view of the same audit: the War Room timeline streams live (SSE),
 every cited number is one click from the real `SimulationMCP` result behind it
 (Golden Rule #1, made visible), and the Human Checkpoint is driven by a button
 that genuinely blocks the run (Golden Rule #2). It's a *read-only renderer* of
-the §10 trace stream — it never originates an agent claim. Design and internals:
-[`architecture.md`](architecture.md) §18.
+the §10 trace stream — it never originates an agent claim.
 
 ## Run the full stack in Docker
 

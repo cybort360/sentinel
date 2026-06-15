@@ -33,3 +33,7 @@ warroom-fixed.png
 
 # Devpost submission pack — kept local, not published in the repo
 docs/SUBMISSION.md
+
+# Internal design + build-process docs — kept local, not published
+architecture.md
+CLAUDE.md
