@@ -26,3 +26,7 @@ sandbox/.anvil.log
 demo/scenarios/last_run.json
 demo/scenarios/benchmark.json
 demo/scenarios/patch_verification.json
+
+# Local debug/inspection artifacts (Playwright MCP, screenshots)
+.playwright-mcp/
+warroom-fixed.png
