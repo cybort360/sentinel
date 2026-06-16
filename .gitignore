@@ -16,6 +16,7 @@ htmlcov/
 # Runtime data
 /data/
 sandbox/out/
+sandbox/contracts/uploads/
 sandbox/cache/
 sandbox/broadcast/
 sandbox/deployments/

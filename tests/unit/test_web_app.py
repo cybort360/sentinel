@@ -13,7 +13,13 @@ import json
 
 from httpx import ASGITransport, AsyncClient
 
-from sentinel.web import TraceBus, WebResponder, create_app
+from sentinel.web import (
+    CompileError,
+    TraceBus,
+    UploadRejectedError,
+    WebResponder,
+    create_app,
+)
 from sentinel.web.app import _event_stream
 
 
@@ -24,8 +30,10 @@ def test_web_app_smoke() -> None:
 async def _smoke() -> None:
     bus = TraceBus()
     responder = WebResponder(bus)
+    launched: list[str | None] = []
 
-    async def launcher() -> None:
+    async def launcher(target: str | None) -> None:
+        launched.append(target)
         bus.publish(
             {
                 "kind": "trace",
@@ -38,8 +46,23 @@ async def _smoke() -> None:
     def lookup(trace_id: str) -> dict[str, object] | None:
         return {"tool": "measure_gas", "gas_used": 21000} if trace_id == "t1" else None
 
+    def targets() -> list[dict[str, object]]:
+        return [{"path": "sandbox/contracts/Vault.sol", "label": "Vault"}]
+
+    def upload(name: str, source: bytes) -> dict[str, object]:
+        if not name.endswith(".sol"):
+            raise UploadRejectedError("must be .sol")
+        if b"syntax error" in source:
+            raise CompileError("ParserError: boom")
+        return {"target": f"sandbox/contracts/{name}", "contract": name[:-4]}
+
     app = create_app(
-        bus=bus, responder=responder, trace_lookup=lookup, run_launcher=launcher
+        bus=bus,
+        responder=responder,
+        trace_lookup=lookup,
+        run_launcher=launcher,
+        target_lister=targets,
+        upload_handler=upload,
     )
     bus.bind_loop(asyncio.get_running_loop())
 
@@ -51,6 +74,27 @@ async def _smoke() -> None:
         assert ok.status_code == 200 and ok.json()["gas_used"] == 21000
         assert (await client.get("/api/trace/missing")).status_code == 404
 
+        # The picker source is exposed for the browser.
+        tgt = await client.get("/api/targets")
+        assert tgt.status_code == 200
+        assert tgt.json()["targets"][0]["path"] == "sandbox/contracts/Vault.sol"
+
+        # An unknown target is rejected (only whitelisted paths reach the graph).
+        bad = await client.post("/api/run", json={"target": "/etc/passwd"})
+        assert bad.status_code == 400
+
+        # Upload: a good contract compiles (200); bad name -> 400; bad source -> 422.
+        good = await client.post(
+            "/api/upload?name=Vault.sol", content=b"contract Vault {}"
+        )
+        assert good.status_code == 200 and good.json()["contract"] == "Vault"
+        assert (
+            await client.post("/api/upload?name=Vault.txt", content=b"x")
+        ).status_code == 400
+        assert (
+            await client.post("/api/upload?name=Bad.sol", content=b"syntax error")
+        ).status_code == 422
+
         # No gate is open -> 409; an unknown decision -> 400.
         assert (
             await client.post("/checkpoint/none", json={"decision": "approve"})
@@ -59,9 +103,10 @@ async def _smoke() -> None:
             await client.post("/checkpoint/none", json={"decision": "bogus"})
         ).status_code == 400
 
-        # The run publishes its events into the bus replay buffer.
+        # An empty body runs the default showcase (launcher gets target=None).
         assert (await client.post("/api/run")).status_code == 200
         await asyncio.sleep(0.15)  # let the run task publish trace + all_complete
+        assert launched == [None]
 
     # httpx's ASGI test transport BUFFERS streaming responses (it waits for the
     # body to finish — ours is an infinite SSE stream), so the live /events route

@@ -15,8 +15,14 @@ Rule #2).
 
 from __future__ import annotations
 
-from sentinel.web.app import create_app
+from sentinel.web.app import CompileError, UploadRejectedError, create_app
 from sentinel.web.bus import TraceBus
 from sentinel.web.responder import WebResponder
 
-__all__ = ["TraceBus", "WebResponder", "create_app"]
+__all__ = [
+    "CompileError",
+    "TraceBus",
+    "UploadRejectedError",
+    "WebResponder",
+    "create_app",
+]

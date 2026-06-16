@@ -30,12 +30,32 @@ from sentinel.web.responder import CheckpointNotPendingError, WebResponder
 _log = get_logger("web")
 _STATIC = Path(__file__).resolve().parent / "static"
 _HEARTBEAT_SECONDS = 15.0
+#: Largest contract source the upload endpoint accepts (bytes).
+_MAX_UPLOAD_BYTES = 512 * 1024
+
+
+class UploadRejectedError(Exception):
+    """The uploaded contract is invalid (bad name/extension/size) — HTTP 400."""
+
+
+class CompileError(Exception):
+    """The uploaded contract did not compile — HTTP 422 (the solc/forge error)."""
+
 
 #: Domain-specific run launcher: a coroutine that executes the audit session(s),
-#: emitting §10 events as it goes. Provided by the demo wiring.
-RunLauncher = Callable[[], Awaitable[None]]
+#: emitting §10 events as it goes. Receives the selected target contract path, or
+#: ``None`` to run the full default showcase. Provided by the demo wiring.
+RunLauncher = Callable[[str | None], Awaitable[None]]
 #: Maps a ``trace_id`` to the recorded ``SimulationMCP`` result, or None.
 TraceLookup = Callable[[str], Mapping[str, Any] | None]
+#: Lists the selectable audit targets (each a mapping with at least ``path``).
+TargetLister = Callable[[], list[Mapping[str, Any]]]
+#: Handles a browser contract upload: given ``(filename, source_bytes)`` it
+#: compiles the contract and registers it as a target, returning a mapping with
+#: at least ``target`` (the new path) and ``contract``. Runs off the event loop
+#: (``forge build`` is blocking); raises :class:`UploadRejectedError` /
+#: :class:`CompileError` on bad input or a compile error.
+UploadHandler = Callable[[str, bytes], Mapping[str, Any]]
 
 
 class _RunState:
@@ -51,6 +71,8 @@ def create_app(
     responder: WebResponder,
     trace_lookup: TraceLookup,
     run_launcher: RunLauncher,
+    target_lister: TargetLister | None = None,
+    upload_handler: UploadHandler | None = None,
 ) -> Starlette:
     """Build the Starlette app wired to a bus, responder, and run launcher.
 
@@ -58,12 +80,20 @@ def create_app(
         bus: The live event bus the SSE endpoint streams from.
         responder: The browser checkpoint responder the POST route resolves.
         trace_lookup: Resolves a ``trace_id`` to its real simulation result.
-        run_launcher: Coroutine that runs the audit when ``POST /api/run`` fires.
+        run_launcher: Coroutine that runs the audit when ``POST /api/run`` fires;
+            it receives the chosen target path (or ``None`` for the showcase).
+        target_lister: Optional source of the selectable targets the browser
+            picker offers (``GET /api/targets``). When omitted, the picker is
+            empty and only the default showcase run is available.
+        upload_handler: Optional handler that compiles a browser-uploaded
+            contract and registers it as a target (``POST /api/upload``). When
+            omitted, the upload route is not mounted.
 
     Returns:
         The configured :class:`starlette.applications.Starlette` app.
     """
     state = _RunState()
+    list_targets: TargetLister = target_lister or (lambda: [])
 
     async def index(request: Request) -> Response:
         """Serve the single-page UI."""
@@ -117,13 +147,53 @@ def create_app(
             return JSONResponse({"error": str(exc)}, 400)
         return JSONResponse({"ok": True, "decision": response.decision.value})
 
+    async def list_targets_route(request: Request) -> Response:
+        """Return the selectable audit targets for the browser picker."""
+        return JSONResponse({"targets": list(list_targets())})
+
     async def start_run(request: Request) -> Response:
-        """Kick off an audit run (no-op if one is already in flight)."""
+        """Kick off an audit run (no-op if one is already in flight).
+
+        An optional JSON body ``{"target": "<path>"}`` selects which contract to
+        audit; the path is whitelisted against ``target_lister`` so the browser
+        can only launch known sandbox targets (no arbitrary filesystem paths
+        reach the orchestrator). An empty/absent body runs the full showcase.
+        """
         if state.running:
             return JSONResponse({"error": "a run is already in progress"}, 409)
+        target = await _selected_target(request)
+        if target is not None:
+            known = {str(t.get("path")) for t in list_targets()}
+            if target not in known:
+                return JSONResponse({"error": "unknown target", "target": target}, 400)
         state.running = True
-        asyncio.create_task(_run(state, bus, run_launcher))
-        return JSONResponse({"ok": True})
+        asyncio.create_task(_run(state, bus, run_launcher, target))
+        return JSONResponse({"ok": True, "target": target})
+
+    async def upload(request: Request) -> Response:
+        """Compile a browser-uploaded contract and register it as a target.
+
+        The raw ``.sol`` source is the request body; the filename is the
+        ``name`` query param. ``forge build`` is blocking, so the handler runs
+        off the event loop. The compiled contract becomes selectable via
+        ``GET /api/targets`` and runnable via ``POST /api/run``.
+        """
+        if upload_handler is None:
+            return JSONResponse({"error": "uploads are not enabled"}, 404)
+        body = await request.body()
+        if len(body) > _MAX_UPLOAD_BYTES:
+            return JSONResponse({"error": "contract too large"}, 413)
+        name = request.query_params.get("name", "")
+        try:
+            result = await asyncio.to_thread(upload_handler, name, body)
+        except UploadRejectedError as exc:
+            return JSONResponse({"error": str(exc)}, 400)
+        except CompileError as exc:
+            return JSONResponse({"error": str(exc)}, 422)
+        except Exception as exc:  # noqa: BLE001 — never crash the server (Rule 4)
+            _log.error("[DEGRADED] contract upload failed", error=str(exc))
+            return JSONResponse({"error": "upload failed"}, 500)
+        return JSONResponse({"ok": True, **dict(result)})
 
     async def healthz(request: Request) -> Response:
         """Liveness probe for the container healthcheck."""
@@ -140,9 +210,11 @@ def create_app(
         routes=[
             Route("/", index),
             Route("/events", events),
+            Route("/api/targets", list_targets_route),
             Route("/api/trace/{trace_id}", get_trace),
             Route("/checkpoint/{run_id}", checkpoint, methods=["POST"]),
             Route("/api/run", start_run, methods=["POST"]),
+            Route("/api/upload", upload, methods=["POST"]),
             Route("/healthz", healthz),
         ],
     )
@@ -178,10 +250,24 @@ async def _event_stream(bus: TraceBus) -> AsyncIterator[bytes]:
         await subscription.aclose()
 
 
-async def _run(state: _RunState, bus: TraceBus, run_launcher: RunLauncher) -> None:
+async def _selected_target(request: Request) -> str | None:
+    """Extract the optional ``target`` from the run request body (or None)."""
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, ValueError):
+        return None  # empty / non-JSON body -> default showcase
+    if not isinstance(body, dict):
+        return None
+    target = body.get("target")
+    return str(target) if target else None
+
+
+async def _run(
+    state: _RunState, bus: TraceBus, run_launcher: RunLauncher, target: str | None
+) -> None:
     """Run the audit, publishing terminal control events; degrade on failure."""
     try:
-        await run_launcher()
+        await run_launcher(target)
         bus.publish({"kind": "all_complete"})
     except Exception as exc:  # noqa: BLE001 — surface, never crash the server (Rule 4)
         _log.error("[DEGRADED] web audit run failed", error=str(exc))
