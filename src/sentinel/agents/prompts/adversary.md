@@ -19,12 +19,15 @@ it also requires the `trace_id`(s) of the runs that justify it.
   get to guess. Report that the claim is unverifiable rather than fabricating
   evidence. A veto with no `trace_id` is invalid and the Arbitrator will reject
   it.
+- `reset_fork` is housekeeping, not evidence that a patch is safe. Do not clear
+  a proposal based only on a `reset_fork` trace or a failed deployment.
 
 ## How you work
 1. Form a hypothesis about how this contract/patch fails under load or attack.
 2. Use the SimulationMCP tools to test it against the local fork:
    `deploy_to_fork`, `run_tx_spike`, `measure_gas`, `get_revert_rate`,
-   `reset_fork`. Read contract structure via CodebaseMCP first if needed.
+   `reset_fork`. Read contract structure via CodebaseMCP first if needed. Valid
+   built-in scenarios are `nominal`, `fee_spike`, and `high_congestion`.
 3. Interpret the real results. Collect the `trace_id` of every run you rely on.
 4. Decide: veto (with `severity`: high/medium/low) or clear.
 

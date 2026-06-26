@@ -63,6 +63,7 @@ from sentinel.orchestrator.checkpoint import (
     HumanResponder,
     MemoryStorePostMortemWriter,
     build_decision_packet,
+    packet_allows_approval,
 )
 from sentinel.orchestrator.graph import RunResult, WarRoomGraph
 from sentinel.orchestrator.schema import BaselineAudit
@@ -89,14 +90,22 @@ class AutoApproveResponder:
 
     async def ask(self, packet: DecisionPacket) -> CheckpointResponse:
         """Return the pre-recorded demo decision."""
+        decision = self._decision
+        rationale = "demo auto-approval (pre-recorded human decision)"
+        summary = "[HUMAN CHECKPOINT] auto-approved by demo driver "
+        if decision is CheckpointDecision.APPROVE and not packet_allows_approval(packet):
+            decision = CheckpointDecision.ACKNOWLEDGE_INCOMPLETE
+            rationale = (
+                "demo acknowledgement for incomplete audit without staged patch"
+            )
+            summary = "[HUMAN CHECKPOINT] auto-acknowledged by demo driver "
         _log.info(
-            "[HUMAN CHECKPOINT] auto-approved by demo driver "
-            "(run with --interactive for a real prompt)",
+            f"{summary}(run with --interactive for a real prompt)",
             run_id=packet.run_id,
         )
         return CheckpointResponse(
-            decision=self._decision,
-            rationale="demo auto-approval (pre-recorded human decision)",
+            decision=decision,
+            rationale=rationale,
             responded_at=datetime.now(tz=UTC),
         )
 
@@ -415,13 +424,13 @@ async def run_demo(
     report.baseline = {**audit.model_dump(), "elapsed_s": baseline_elapsed}
 
     report.efficiency = _measure_efficiency(simulation)
-    _render_efficiency_table(console, report, baseline_elapsed)
+    _render_efficiency_table(console, report, baseline_elapsed, live=live is not None)
     _report_cross_session(console, report.sessions[0], report.sessions[1])
     return report
 
 
 def _render_efficiency_table(
-    console: Console, report: DemoReport, baseline_elapsed: float
+    console: Console, report: DemoReport, baseline_elapsed: float, *, live: bool = False
 ) -> None:
     """Render the §11 efficiency comparison from real run data."""
     eff = report.efficiency
@@ -430,6 +439,9 @@ def _render_efficiency_table(
     table.add_column("Metric")
     table.add_column("Baseline (single-pass)")
     table.add_column("SENTINEL (multi-agent)")
+    token_label = (
+        "usage not reported by live Qwen client" if live else "0 (deterministic driver)"
+    )
     rows = [
         (
             "Vulnerabilities identified",
@@ -448,7 +460,7 @@ def _render_efficiency_table(
             "n/a",
             f"{float(eff['post_patch_congestion_revert']):.0%}",
         ),
-        ("Tokens consumed", "n/a", "0 (deterministic driver)"),
+        ("Tokens consumed", "n/a", token_label),
         ("Wall-clock time", f"{baseline_elapsed:.2f}s", f"{s1.elapsed_s:.2f}s"),
         ("Residual risk disclosed?", "N", "Y"),
     ]
@@ -462,9 +474,7 @@ def _report_cross_session(
 ) -> None:
     """Show §6.4: a different memory record surfaced per session."""
     differ = s1.top_memory != s2.top_memory
-    verdict = (
-        "DIFFERENT records (retrieval generalises)" if differ else "SAME record"
-    )
+    verdict = "DIFFERENT records (retrieval generalises)" if differ else "SAME record"
     console.print(
         f"[bold]Cross-session memory (§6.4):[/] session 1 surfaced "
         f"[cyan]{s1.top_memory}[/], session 2 surfaced [cyan]{s2.top_memory}[/] "

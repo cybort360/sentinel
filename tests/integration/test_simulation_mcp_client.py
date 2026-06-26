@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from tests.integration.sandbox_build import build_demo_contracts
 
 from sentinel.mcp_servers.simulation_mcp.anvil import AnvilProcess
 from sentinel.mcp_servers.simulation_mcp.client import SimulationMCPClient
@@ -44,7 +44,7 @@ def sandbox() -> Iterator[tuple[SimulationMCPClient, SimulationEngine]]:
     """
     if shutil.which("anvil") is None or shutil.which("forge") is None:
         pytest.skip("Foundry (anvil/forge) not installed")
-    subprocess.run(["forge", "build"], cwd=_SANDBOX, check=True)
+    build_demo_contracts(_SANDBOX)
     anvil = AnvilProcess(host="127.0.0.1", port=_TEST_PORT)
     anvil.start()
     env = {**os.environ, "ANVIL_HOST": "127.0.0.1", "ANVIL_PORT": str(_TEST_PORT)}

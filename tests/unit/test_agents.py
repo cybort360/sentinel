@@ -243,7 +243,7 @@ def test_adversary_vetoes_on_simulated_revert_rate_with_trace_id() -> None:
     )
     agent = AdversaryAgent(
         client=client,
-        model="qwen3-max-thinking",
+        model="qwen3-max",
         tools=AdversaryAgent.default_tools(sim, codebase),
     )
     review = agent.review("evaluate patch-1")

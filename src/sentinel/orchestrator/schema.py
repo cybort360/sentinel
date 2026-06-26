@@ -40,6 +40,17 @@ class Outcome(StrEnum):
 
     CONSENSUS = "consensus"
     CONSTRAINTS_UNSATISFIED = "constraints_unsatisfied"
+    TOOL_FAILURE = "tool_failure"
+    DYNAMIC_VERIFICATION_UNAVAILABLE = "dynamic_verification_unavailable"
+
+
+class DynamicVerificationStatus(StrEnum):
+    """Whether dynamic simulation evidence completed for the final proposal."""
+
+    PASSED = "passed"
+    INCOMPLETE = "incomplete"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
 
 
 def _require_non_empty_trace_ids(value: list[str]) -> list[str]:
@@ -75,6 +86,11 @@ class Proposal(BaseModel):
     run_id: str
     iteration: int = Field(ge=0)
     patch_id: str | None = None
+    staged_source_path: str | None = None
+    staged_artifact: str | None = None
+    contract_name: str | None = None
+    artifact_path: str | None = None
+    original_target_path: str | None = None
     proposed_by: AgentRole = AgentRole.ARBITRATOR
     summary: str
     trace_ids: list[str]
@@ -297,6 +313,9 @@ class RiskProfile(BaseModel):
     iterations: int = Field(ge=0)
     tokens_total: int = Field(ge=0)
     trace_ids: list[str]
+    dynamic_verification_status: DynamicVerificationStatus = (
+        DynamicVerificationStatus.PASSED
+    )
 
     @field_validator("trace_ids")
     @classmethod

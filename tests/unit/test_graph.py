@@ -10,11 +10,15 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from sentinel.orchestrator.graph import RunResult, WarRoomGraph
+from structlog.testing import capture_logs
+
+from sentinel.mcp_servers.codebase_mcp.results import ProposeResult
+from sentinel.orchestrator.graph import RunResult, WarRoomGraph, _initial_adversary_task
 from sentinel.orchestrator.schema import (
     AdversaryReview,
     BaselineAudit,
     Constraint,
+    DynamicVerificationStatus,
     LessonsContext,
     Outcome,
     Proposal,
@@ -98,6 +102,32 @@ class FakeBaseline:
     def audit(self, task: str) -> BaselineAudit:
         self.calls += 1
         return self._audit
+
+
+class FakeReaderWithArtifact:
+    def __init__(self, artifact: str) -> None:
+        self._artifact = artifact
+
+    def read_contract(self, path: str) -> object:
+        return SimpleNamespace(summary=SimpleNamespace(unauditable_functions=[]))
+
+    def staged_artifact(self, patch_id: str) -> str | None:
+        return self._artifact
+
+
+class FakeReaderWithLatestPatch:
+    def __init__(self, result: ProposeResult) -> None:
+        self._results = [None, result]
+        self.latest_patch_calls = 0
+
+    def read_contract(self, path: str) -> object:
+        return SimpleNamespace(summary=SimpleNamespace(unauditable_functions=[]))
+
+    def latest_patch(self) -> ProposeResult | None:
+        self.latest_patch_calls += 1
+        if self._results:
+            return self._results.pop(0)
+        return None
 
 
 def _reader(unauditable: list[str] | None = None, fail: bool = False) -> object:
@@ -234,11 +264,238 @@ def test_consensus_after_one_round() -> None:
     assert profile.iterations == 1
     assert result.final_proposal is not None
     assert profile.final_proposal == "patch-1"
-    # Narrative comes from the draft; accounting is the graph's real data.
+    # Risk text comes from the final agent positions; accounting is the graph's
+    # real data.
     assert profile.residual_risk_pct == 0.04
+    assert "Final Adversary review cleared the proposal" in (
+        profile.residual_risk_description
+    )
+    assert "clean under sweep" in profile.residual_risk_description
     assert profile.trace_ids == ["sim-scan-1", "sim-v1"]  # deduped, no draft-bogus
     assert "draft-bogus" not in profile.trace_ids
     assert arb.propose_calls == 1 and arb.synth_calls == 1
+
+
+def test_arbitrator_proposal_cannot_introduce_unknown_trace_ids() -> None:
+    graph, _ = _graph(
+        yields=[_yield(YieldVerdict.REVISE), _yield(YieldVerdict.ACCEPT)],
+        reviews=[
+            _review(vetoed=True, traces=["sim-scan-1"]),
+            _review(vetoed=False, traces=["sim-v1"]),
+        ],
+        proposals=[_proposal("patch-1", traces=["fake-trace"])],
+        draft=_draft(),
+    )
+    result = graph.run("x.sol", run_id="run-fake-proposal-trace")
+
+    assert result.final_proposal is not None
+    assert result.final_proposal.trace_ids == ["sim-scan-1"]
+    assert result.risk_profile.trace_ids == ["sim-scan-1", "sim-v1"]
+    assert "fake-trace" not in result.risk_profile.trace_ids
+
+
+def test_missing_patch_id_terminates_as_tool_failure() -> None:
+    proposal = Proposal(
+        proposal_id="prop-missing",
+        run_id="r",
+        iteration=1,
+        patch_id=None,
+        summary="patch staging failed",
+        trace_ids=["sim-scan-1"],
+    )
+    graph, _ = _graph(
+        yields=[_yield(YieldVerdict.REVISE)],
+        reviews=[_review(vetoed=True, traces=["sim-scan-1"])],
+        proposals=[proposal],
+        draft=_draft(),
+        max_iterations=1,
+    )
+
+    result = graph.run("x.sol", run_id="run-missing-patch")
+
+    assert result.final_proposal is None
+    assert result.final_review is not None
+    assert result.final_review.vetoed
+    assert result.risk_profile.outcome is Outcome.TOOL_FAILURE
+    assert result.risk_profile.iterations == 1
+    assert result.risk_profile.final_proposal is None
+    assert "proposal has no patch_id" in result.risk_profile.residual_risk_description
+
+
+def test_missing_model_patch_id_uses_new_codebase_patch_result() -> None:
+    staged = ProposeResult(
+        patch_id="real-staged-patch",
+        path="sandbox/contracts/audit_workdir/Vault.sol",
+        branch="sentinel/patch-real",
+        base_commit="abc123",
+        staged_source_path="sandbox/contracts/staged_patches/real-staged-patch.sol",
+        staged_artifact=(
+            "sandbox/contracts/staged_patches/real-staged-patch.sol:Vault"
+        ),
+        contract_name="Vault",
+        artifact_path="sandbox/out/real-staged-patch.sol/Vault.json",
+        original_target_path="sandbox/contracts/audit_workdir/Vault.sol",
+    )
+    proposal = Proposal(
+        proposal_id="prop_vsv_round1_v1",
+        run_id="r",
+        iteration=1,
+        patch_id=None,
+        summary="stage uploaded vault patch",
+        trace_ids=["sim-scan-1"],
+    )
+    reader = FakeReaderWithLatestPatch(staged)
+    graph, _ = _graph(
+        yields=[_yield(YieldVerdict.REVISE), _yield(YieldVerdict.ACCEPT)],
+        reviews=[
+            _review(vetoed=True, traces=["sim-scan-1"]),
+            _review(vetoed=False, traces=["sim-v1"]),
+        ],
+        proposals=[proposal],
+        draft=_draft(outcome=Outcome.CONSTRAINTS_UNSATISFIED),
+        max_iterations=1,
+        reader=reader,
+    )
+
+    result = graph.run(
+        "sandbox/contracts/audit_workdir/Vault.sol",
+        run_id="run-model-omitted-patch-id",
+    )
+
+    assert result.risk_profile.outcome is Outcome.CONSENSUS
+    assert result.final_proposal is not None
+    assert result.final_proposal.proposal_id == "prop_vsv_round1_v1"
+    assert result.final_proposal.patch_id == "real-staged-patch"
+    assert result.final_proposal.staged_artifact == staged.staged_artifact
+    assert result.risk_profile.final_proposal == "real-staged-patch"
+    assert reader.latest_patch_calls >= 2
+
+
+def test_propose_exception_terminates_as_tool_failure() -> None:
+    class FailingArbitrator(FakeArbitrator):
+        def propose(self, task: str) -> Proposal:
+            self.propose_calls += 1
+            raise RuntimeError("git add failed: ignored path")
+
+    arb = FailingArbitrator([], _draft())
+    graph = WarRoomGraph(
+        yield_agent=FakeYield([_yield(YieldVerdict.REVISE)]),
+        adversary=FakeAdversary([_review(vetoed=True, traces=["sim-scan-1"])]),
+        arbitrator=arb,
+        lessons=FakeLessons([LessonsContext()]),
+        codebase=_reader(),
+        budget=BudgetConfig(max_iterations=4),
+    )
+
+    result = graph.run("x.sol", run_id="run-propose-failed")
+
+    assert result.risk_profile.outcome is Outcome.TOOL_FAILURE
+    assert result.risk_profile.iterations == 1
+    assert result.risk_profile.final_proposal is None
+    assert result.negotiation == []
+    assert arb.propose_calls == 1
+
+
+def test_patch_verification_failure_terminates_without_veto_loop() -> None:
+    failed_review = AdversaryReview(
+        run_id="r",
+        iteration=1,
+        target_proposal_id="prop-patch-1",
+        vetoed=True,
+        severity=Severity.HIGH,
+        reason="Staged patch cannot be deployed because build artifact is missing",
+        evidence="deploy_to_fork returned a degraded missing artifact trace",
+        trace_ids=["sim-deploy-failed"],
+    )
+    graph, arb = _graph(
+        yields=[_yield(YieldVerdict.REVISE), _yield(YieldVerdict.ACCEPT)],
+        reviews=[
+            _review(vetoed=True, traces=["sim-scan-1"]),
+            failed_review,
+        ],
+        proposals=[_proposal("patch-1", traces=["sim-scan-1"])],
+        draft=_draft(),
+        max_iterations=4,
+    )
+
+    result = graph.run("x.sol", run_id="run-patch-verify-failed")
+
+    assert result.risk_profile.outcome is Outcome.TOOL_FAILURE
+    assert result.risk_profile.iterations == 1
+    assert result.negotiation == []
+    assert arb.propose_calls == 1
+
+
+def test_dynamic_verification_unavailable_preserves_static_patch() -> None:
+    unavailable = AdversaryReview(
+        run_id="r",
+        iteration=1,
+        target_proposal_id="prop-patch-1",
+        vetoed=True,
+        severity=Severity.HIGH,
+        reason=(
+            "dynamic_verification_unavailable: unsupported constructor argument "
+            "owners:address[]"
+        ),
+        evidence="infer_constructor_args reported arrays are unsupported",
+        trace_ids=["sim-constructor-unavailable"],
+    )
+    graph, arb = _graph(
+        yields=[_yield(YieldVerdict.REVISE), _yield(YieldVerdict.ACCEPT)],
+        reviews=[
+            _review(vetoed=True, traces=["sim-scan-1"]),
+            unavailable,
+        ],
+        proposals=[_proposal("patch-1", traces=["sim-scan-1"])],
+        draft=_draft(),
+        max_iterations=4,
+    )
+
+    with capture_logs() as logs:
+        result = graph.run(
+            "sandbox/contracts/audit_workdir/Unsupported.sol",
+            run_id="run-dynamic-unavailable",
+        )
+
+    assert result.risk_profile.outcome is Outcome.DYNAMIC_VERIFICATION_UNAVAILABLE
+    assert result.risk_profile.final_proposal == "patch-1"
+    assert result.final_proposal is not None
+    assert result.risk_profile.dynamic_verification_status is (
+        DynamicVerificationStatus.UNAVAILABLE
+    )
+    assert "Dynamic verification was unavailable" in (
+        result.risk_profile.residual_risk_description
+    )
+    assert result.negotiation == []
+    assert arb.propose_calls == 1
+    risk_logs = [
+        entry for entry in logs if entry.get("demo_tag") == "ANNOTATED RESIDUAL RISK"
+    ]
+    assert risk_logs
+    summary = str(risk_logs[-1].get("event", ""))
+    assert summary.startswith("Unverified - ")
+    assert "0%" not in summary
+
+
+def test_uploaded_patch_review_uses_compiled_staged_artifact() -> None:
+    artifact = "sandbox/contracts/staged_patches/patch-1/Vault.sol:Vault"
+    reader = FakeReaderWithArtifact(artifact)
+    graph, _ = _graph(
+        yields=[_yield(YieldVerdict.REVISE), _yield(YieldVerdict.ACCEPT)],
+        reviews=[
+            _review(vetoed=True, traces=["sim-scan-1"]),
+            _review(vetoed=False, traces=["sim-clear-1"]),
+        ],
+        proposals=[_proposal("patch-1", traces=["sim-scan-1"])],
+        draft=_draft(Outcome.CONSENSUS),
+        reader=reader,
+    )
+
+    result = graph.run("sandbox/contracts/audit_workdir/Vault.sol", run_id="run-art")
+
+    assert result.final_proposal is not None
+    assert result.final_proposal.staged_artifact == artifact
+    assert artifact in graph._adversary.tasks[-1]
 
 
 # --------------------------------------------------------------------------- #
@@ -267,6 +524,9 @@ def test_constraints_unsatisfied_respects_max_iterations() -> None:
     assert profile.final_proposal == "patch-2"  # last staged candidate
     assert profile.memory_records_used == ["mem-a", "mem-b"]  # accumulated + deduped
     assert profile.trace_ids  # non-empty (Rule 1)
+    assert "Final Adversary veto remains unresolved" in (
+        profile.residual_risk_description
+    )
 
 
 def test_higher_cap_allows_more_rounds() -> None:
@@ -422,3 +682,14 @@ def test_early_exit_has_no_negotiation() -> None:
     )
     result = graph.run("x.sol", run_id="run-exit")
     assert result.negotiation == []  # no conflict arose
+
+
+def test_uploaded_contract_initial_task_uses_generic_mode() -> None:
+    task = _initial_adversary_task(
+        "sandbox/contracts/audit_workdir/VulnerableSubscriptionVault.sol"
+    )
+
+    assert "generic probes only" in task
+    assert "Do not run demo scenarios" in task
+    assert "fee_spike" in task
+    assert "static finding only; no exploit trace available" in task

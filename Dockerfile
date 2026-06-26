@@ -41,7 +41,11 @@ COPY . .
 # Install the sentinel package, then compile the demo contracts so the
 # SimulationEngine finds bytecode in sandbox/out at runtime.
 RUN uv sync --frozen --no-dev \
-    && forge build --root sandbox
+    && forge build --root sandbox \
+        contracts/SubscriptionBilling.sol \
+        contracts/SubscriptionBillingGuarded.sol \
+        contracts/ReentrancyAttacker.sol \
+        contracts/YieldVault.sol
 
 # Default command runs the end-to-end demo (architecture.md §12); each compose
 # service overrides this with its own entrypoint.

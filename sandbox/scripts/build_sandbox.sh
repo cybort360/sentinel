@@ -91,7 +91,12 @@ log "merchant  = $MERCHANT"
 # --- 5. Build + deploy both contracts ----------------------------------------
 cd "$SANDBOX"
 log "compiling contracts"
-forge build >/dev/null
+forge build \
+    contracts/SubscriptionBilling.sol \
+    contracts/SubscriptionBillingGuarded.sol \
+    contracts/ReentrancyAttacker.sol \
+    contracts/YieldVault.sol \
+    >/dev/null
 
 deploy() {
     # $1 = "path:Name", remaining args = constructor args

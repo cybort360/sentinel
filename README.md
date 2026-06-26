@@ -31,7 +31,7 @@ flowchart TB
   subgraph QC["Qwen Cloud — Alibaba Model Studio (OpenAI-compatible API)"]
     direction LR
     QM1["qwen3-coder-plus"]
-    QM2["qwen3-max-thinking"]
+    QM2["qwen3-max"]
     QM3["qwen3-max"]
     QM4["qwen-plus"]
   end

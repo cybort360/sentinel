@@ -35,6 +35,7 @@ from sentinel.memory.schema import MemoryRecord
 from sentinel.observability.trace_logger import DemoTag, emit, get_logger
 from sentinel.orchestrator.schema import (
     AdversaryReview,
+    DynamicVerificationStatus,
     Outcome,
     Proposal,
     RiskProfile,
@@ -57,12 +58,13 @@ def _now() -> datetime:
 
 
 class CheckpointDecision(StrEnum):
-    """The four human responses at a gated decision (architecture.md §7.2)."""
+    """The human responses at a gated decision (architecture.md §7.2)."""
 
     APPROVE = "approve"
     REJECT = "reject"
     REQUEST_MORE_ANALYSIS = "request_more_analysis"
     ESCALATE = "escalate"
+    ACKNOWLEDGE_INCOMPLETE = "acknowledge_incomplete"
 
 
 class CheckpointResponse(BaseModel):
@@ -155,7 +157,11 @@ def gated_reasons(run_result: RunResult) -> list[str]:
     """List which §7.1 critical-decision conditions apply to this run."""
     profile = run_result.risk_profile
     reasons: list[str] = []
-    if run_result.final_proposal is not None:
+    if (
+        run_result.final_proposal is not None
+        and run_result.final_proposal.patch_id is not None
+        and profile.outcome is not Outcome.TOOL_FAILURE
+    ):
         reasons.append("Applying a patch to the protocol (§7.1.2)")
     if profile.residual_risk_pct > 0.0:
         reasons.append(
@@ -164,9 +170,34 @@ def gated_reasons(run_result: RunResult) -> list[str]:
         )
     if profile.outcome is Outcome.CONSTRAINTS_UNSATISFIED:
         reasons.append("Proceeding past an unresolved Adversary veto (§7.1.3)")
+    if profile.outcome is Outcome.TOOL_FAILURE:
+        reasons.append("Audit incomplete because a tool failed (§4 Rule 4)")
+    if profile.outcome is Outcome.DYNAMIC_VERIFICATION_UNAVAILABLE:
+        reasons.append(
+            "Dynamic verification unavailable; static audit only (§4 Rule 4)"
+        )
     if not reasons:
         reasons.append("Deployment authorization (§7.1.1)")
     return reasons
+
+
+def _unverified_dynamic(profile: RiskProfile) -> bool:
+    """Return whether dynamic verification did not produce a risk percentage."""
+    return (
+        profile.outcome is Outcome.DYNAMIC_VERIFICATION_UNAVAILABLE
+        or profile.dynamic_verification_status
+        in (
+            DynamicVerificationStatus.UNAVAILABLE,
+            DynamicVerificationStatus.INCOMPLETE,
+        )
+    )
+
+
+def _risk_label(profile: RiskProfile) -> str:
+    """Return the human-facing residual risk label."""
+    if _unverified_dynamic(profile):
+        return "Unverified"
+    return f"{profile.residual_risk_pct:.0%}"
 
 
 def build_decision_packet(
@@ -244,14 +275,19 @@ def _risk_panel(profile: RiskProfile) -> Panel:
     mitigations = (
         "\n".join(f"  • {m}" for m in profile.mitigations_applied) or "  (none)"
     )
+    label = _risk_label(profile)
     return Panel(
         f"outcome: [bold]{profile.outcome.value}[/]\n"
-        f"residual risk: [bold]{profile.residual_risk_pct:.0%}[/] — "
+        f"residual risk: [bold]{label}[/] - "
         f"{profile.residual_risk_description}\n"
         f"mitigations applied:\n{mitigations}\n"
         f"trace_ids: {', '.join(profile.trace_ids)}",
         title="RiskProfile",
-        border_style="red" if profile.residual_risk_pct > 0 else "green",
+        border_style=(
+            "red"
+            if profile.residual_risk_pct > 0 or _unverified_dynamic(profile)
+            else "green"
+        ),
     )
 
 
@@ -260,7 +296,33 @@ _CHOICE_TO_DECISION = {
     "reject": CheckpointDecision.REJECT,
     "more": CheckpointDecision.REQUEST_MORE_ANALYSIS,
     "escalate": CheckpointDecision.ESCALATE,
+    "acknowledge": CheckpointDecision.ACKNOWLEDGE_INCOMPLETE,
 }
+
+
+def packet_allows_approval(packet: DecisionPacket) -> bool:
+    """Return whether this packet has a staged proposal a human may approve."""
+    return (
+        packet.proposal is not None
+        and bool(packet.proposal.patch_id)
+        and packet.risk_profile.outcome is not Outcome.TOOL_FAILURE
+        and packet.risk_profile.dynamic_verification_status
+        is not DynamicVerificationStatus.FAILED
+    )
+
+
+def packet_is_incomplete_audit(packet: DecisionPacket) -> bool:
+    """Return whether the gate represents an incomplete audit, not approval."""
+    has_patch = packet.proposal is not None and bool(packet.proposal.patch_id)
+    return packet.risk_profile.outcome is Outcome.TOOL_FAILURE or not has_patch
+
+
+def packet_allows_incomplete_acknowledgement(packet: DecisionPacket) -> bool:
+    """Return whether acknowledgement is a valid terminal response."""
+    return (
+        packet_is_incomplete_audit(packet)
+        or packet.risk_profile.outcome is Outcome.DYNAMIC_VERIFICATION_UNAVAILABLE
+    )
 
 
 class ConsoleResponder:
@@ -278,13 +340,18 @@ class ConsoleResponder:
         """
         render_packet(packet, self._console)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._blocking_prompt)
+        return await loop.run_in_executor(None, self._blocking_prompt, packet)
 
-    def _blocking_prompt(self) -> CheckpointResponse:
+    def _blocking_prompt(self, packet: DecisionPacket) -> CheckpointResponse:
         """Prompt for a decision on the calling thread (blocks until answered)."""
+        choices = list(_CHOICE_TO_DECISION)
+        if packet_is_incomplete_audit(packet):
+            choices = ["reject", "escalate", "acknowledge"]
+        elif not packet_allows_approval(packet):
+            choices.remove("approve")
         choice = Prompt.ask(
             "Decision",
-            choices=list(_CHOICE_TO_DECISION),
+            choices=choices,
             console=self._console,
         )
         decision = _CHOICE_TO_DECISION[choice]
@@ -340,6 +407,20 @@ class HumanCheckpoint:
             gated_reasons=packet.gated_reasons,
         )
         response = await self._responder.ask(packet)
+        invalid_approval = (
+            response.decision is CheckpointDecision.APPROVE
+            and not packet_allows_approval(packet)
+        )
+        if invalid_approval:
+            raise ValueError("approve requires a staged patch_id in the checkpoint")
+        invalid_acknowledgement = (
+            response.decision is CheckpointDecision.ACKNOWLEDGE_INCOMPLETE
+            and not packet_allows_incomplete_acknowledgement(packet)
+        )
+        if invalid_acknowledgement:
+            raise ValueError(
+                "acknowledge_incomplete requires an incomplete or unverified audit"
+            )
         emit(
             _log,
             DemoTag.HUMAN_CHECKPOINT,
@@ -381,13 +462,13 @@ class HumanCheckpoint:
         """Fold the human decision into a MemoryMCP post-mortem (§7.2.4)."""
         if self._writer is None:
             return None
-        pct = packet.risk_profile.residual_risk_pct
+        risk = _risk_label(packet.risk_profile)
         post_mortem_id = self._writer.write_post_mortem(
             topic_tags=packet.topic_tags,
             severity=_post_mortem_severity(packet, response),
             description=(
                 f"Run {packet.run_id} on {packet.target}: outcome "
-                f"{packet.risk_profile.outcome.value}, residual risk {pct:.0%}, "
+                f"{packet.risk_profile.outcome.value}, residual risk {risk}, "
                 f"human decision {response.decision.value}."
             ),
             lesson_text=_post_mortem_lesson(packet, response),
@@ -411,6 +492,8 @@ def _post_mortem_severity(
     """Grade the post-mortem: escalations and high residual risk are high."""
     if response.decision is CheckpointDecision.ESCALATE:
         return Severity.HIGH
+    if _unverified_dynamic(packet.risk_profile):
+        return Severity.MEDIUM
     pct = packet.risk_profile.residual_risk_pct
     if pct > 0.1:
         return Severity.HIGH
@@ -421,10 +504,10 @@ def _post_mortem_severity(
 
 def _post_mortem_lesson(packet: DecisionPacket, response: CheckpointResponse) -> str:
     """Frame the human decision as a standing constraint, not a fix (§4.4)."""
-    pct = packet.risk_profile.residual_risk_pct
+    risk = _risk_label(packet.risk_profile)
     rationale = f" Rationale: {response.rationale}." if response.rationale else ""
     return (
-        f"A human chose to {response.decision.value} this audit at {pct:.0%} "
+        f"A human chose to {response.decision.value} this audit at {risk} "
         f"residual risk.{rationale} Standing constraint: future audits touching "
         f"{', '.join(packet.topic_tags)} must re-surface this decision for human "
         f"sign-off rather than assume it was permanently resolved."

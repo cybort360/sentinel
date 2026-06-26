@@ -393,6 +393,8 @@ pre.json .b{color:#d6a3ff}
 .dbtn:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
 .dbtn.approve{background:var(--ok);border-color:var(--ok);color:#fff}
 .dbtn.approve:hover{background:#0a6f59}
+.dbtn.primary{background:var(--ink);border-color:var(--ink);color:#fff}
+.dbtn.primary:hover{background:#111827}
 .dbtn.reject{color:var(--adv-deep);border-color:#f4c4ce}
 .dbtn.reject:hover{background:var(--adv-tint)}
 .dbtn.escalate{color:var(--halt);border-color:#f6d6c2}
@@ -586,11 +588,12 @@ pre.json::-webkit-scrollbar-thumb{background:#39414e}
       <div class="frow">
         <div class="rationale">
           <label for="rationale">Rationale <span style="color:var(--ink-4);font-weight:500;text-transform:none;letter-spacing:0">(recorded with your decision)</span></label>
-          <textarea id="rationale" placeholder="Why are you approving / rejecting / escalating? (optional)"></textarea>
+          <textarea id="rationale" placeholder="Optional rationale"></textarea>
         </div>
         <div class="decide">
           <button class="dbtn reject" id="btnReject"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Reject</button>
           <button class="dbtn escalate" id="btnEscalate"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 2.5 20h19L12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10v4M12 16.5v.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Escalate</button>
+          <button class="dbtn primary" id="btnAcknowledge" hidden><svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14M12 5v14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Acknowledge incomplete audit</button>
           <button class="dbtn approve" id="btnApprove"><svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Approve &amp; deploy</button>
         </div>
       </div>
@@ -634,6 +637,7 @@ const State = {
   mode:'live', runId:null, target:null, started:false, traces:{}, sim:[],
   activeTrace:null, gateOpen:false, gateTimer:null, gateStart:0, resultsEl:null,
   selectedTarget:'', targetsLoaded:false,
+  isRunning:false, status:'idle', lastRunResult:null,
 };
 
 /* ---------------- DOM refs ---------------- */
@@ -655,7 +659,11 @@ const dom = {
 /* ---------------- Telemetry / status ---------------- */
 function setState(kind, label){ dom.stateDot.className='statedot '+kind; dom.stateLabel.textContent=label; }
 function updateTelem({risk, iter, outcome}={}){
-  if(risk!=null){ dom.tRisk.textContent=fmtPct(risk); dom.tRisk.className='v'+(risk===0?' risk-zero':''); }
+  if(risk!=null){
+    const unverified = String(outcome||'') === 'dynamic_verification_unavailable';
+    dom.tRisk.textContent = unverified ? 'Unverified' : fmtPct(risk);
+    dom.tRisk.className = 'v'+(risk===0&&!unverified?' risk-zero':'');
+  }
   if(iter!=null){ dom.tIter.textContent=iter; }
   if(outcome!=null){ dom.tOutcome.textContent=String(outcome).replace(/_/g,' '); dom.tOutcome.className='v small'; }
 }
@@ -862,6 +870,28 @@ function openGate(p){
   setState('halted','HALTED — awaiting human');
   dom.gateRun.textContent = p.run_id || State.runId || '—';
   const rp = p.risk_profile || {};
+  const dynStatus = rp.dynamic_verification_status || (rp.outcome === 'dynamic_verification_unavailable' ? 'unavailable' : 'passed');
+  const hasProposalPatch = !!(p.proposal && p.proposal.patch_id);
+  const incompleteAudit = rp.outcome === 'tool_failure' || !hasProposalPatch;
+  const hasPatch = !!(hasProposalPatch && rp.outcome !== 'tool_failure' && dynStatus !== 'failed');
+  const dynamicPassed = dynStatus === 'passed';
+  const approveBtn = $('#btnApprove');
+  const ackBtn = $('#btnAcknowledge');
+  if(approveBtn){
+    approveBtn.hidden = !hasPatch;
+    approveBtn.disabled = !hasPatch;
+    approveBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>${dynamicPassed?'Approve &amp; deploy':'Approve patch with residual risk'}`;
+  }
+  if(ackBtn){
+    ackBtn.hidden = !incompleteAudit;
+    ackBtn.disabled = false;
+  }
+  const title = $('#gateTitle');
+  if(title){
+    const desc = String(rp.residual_risk_description || '').toLowerCase();
+    const stagingFailed = desc.includes('patch staging') || desc.includes('patch_id');
+    title.textContent = incompleteAudit ? (stagingFailed ? 'Audit incomplete - patch staging failed' : 'Audit incomplete') : 'Human checkpoint required';
+  }
   updateTelem({risk:rp.residual_risk_pct, iter:rp.iterations, outcome:rp.outcome});
   // clock
   State.gateStart = Date.now();
@@ -876,6 +906,17 @@ function closeGate(){
   State.gateOpen=false;
   clearInterval(State.gateTimer);
   dom.scrim.classList.remove('show');
+  const approveBtn = $('#btnApprove');
+  if(approveBtn){
+    approveBtn.hidden=false;
+    approveBtn.disabled=false;
+    approveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Approve &amp; deploy';
+  }
+  const ackBtn = $('#btnAcknowledge');
+  if(ackBtn){
+    ackBtn.hidden=true;
+    ackBtn.disabled=false;
+  }
 }
 function gateChips(ids, label){
   if(!ids||!ids.length) return '';
@@ -890,6 +931,8 @@ function buildGateBody(p){
   const mem = p.memory_records_used || risk.memory_records_used || [];
   const tags = p.topic_tags || [];
   const negotiation = p.negotiation || [];
+  const dynStatus = risk.dynamic_verification_status || (risk.outcome === 'dynamic_verification_unavailable' ? 'unavailable' : 'passed');
+  const riskValue = dynStatus === 'passed' ? fmtPct(risk.residual_risk_pct) : 'unverified';
   const RES_META = {
     reconciled:{t:'RECONCILED',c:'var(--yield-deep)',bg:'var(--yield-tint)'},
     veto_upheld:{t:'VETO UPHELD',c:'var(--adv-deep)',bg:'var(--adv-tint)'},
@@ -947,7 +990,7 @@ function buildGateBody(p){
         <div class="gl"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 4 6v6c0 4.4 3.2 8 8 9 4.8-1 8-4.6 8-9V6l-8-3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="label">Risk profile</span></div>
         <div class="gblock ag-arbitrator" style="--c:var(--arb)">
           <div class="bt"><span class="ai" style="background:var(--arb-tint);color:var(--arb)">${AGENT_SVG.arbitrator}</span><span class="nm" style="color:var(--arb-deep)">ARBITRATOR ASSESSMENT</span><span class="sev" style="background:${risk.outcome==='consensus'?'var(--yield-tint)':'var(--halt-tint)'};color:${risk.outcome==='consensus'?'var(--yield-deep)':'var(--halt)'}">${esc((risk.outcome||'').replace(/_/g,' '))}</span></div>
-          <div class="riskbig"><span class="rv ${rr===0?'zero':''}">${fmtPct(rr)}</span><span class="rl">residual risk after ${risk.iterations||'—'} iteration${risk.iterations===1?'':'s'}</span></div>
+          <div class="riskbig"><span class="rv ${rr===0&&dynStatus==='passed'?'zero':''}">${riskValue}</span><span class="rl">residual risk after ${risk.iterations||'—'} iteration${risk.iterations===1?'':'s'}</span></div>
           ${risk.residual_risk_description?`<div class="risk-desc">${esc(risk.residual_risk_description)}</div>`:''}
           ${(risk.mitigations_applied&&risk.mitigations_applied.length)?`<div class="gsub">Mitigations applied</div>${risk.mitigations_applied.map(m=>`<div class="mit"><svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>${esc(m)}</span></div>`).join('')}`:''}
           ${gateChips(risk.trace_ids)}
@@ -967,21 +1010,21 @@ function buildGateBody(p){
 async function resolveCheckpoint(decision){
   const rationale = dom.rationale.value.trim();
   // optimistic UI lock
-  [$('#btnApprove'),$('#btnReject'),$('#btnEscalate')].forEach(b=>b.disabled=true);
+  [$('#btnApprove'),$('#btnReject'),$('#btnEscalate'),$('#btnAcknowledge')].forEach(b=>{ if(b && !b.hidden) b.disabled=true; });
   try{
     await api.checkpoint(State.runId, { decision, rationale: rationale||undefined });
     // resolution will also arrive via checkpoint_resolved; close now for snappy feel
     onResolved(decision, true);
   }catch(e){
-    [$('#btnApprove'),$('#btnReject'),$('#btnEscalate')].forEach(b=>b.disabled=false);
+    [$('#btnApprove'),$('#btnReject'),$('#btnEscalate'),$('#btnAcknowledge')].forEach(b=>{ if(b && !b.hidden) b.disabled=false; });
     toast('Checkpoint POST failed: '+(e.message||'error'), '#D81E3F');
   }
 }
 function onResolved(decision, local){
   if(!State.gateOpen && !local) return;
   closeGate();
-  const colorMap={approve:'#0E8A6E',reject:'#D81E3F',escalate:'#C2410C'};
-  const verb={approve:'Approved',reject:'Rejected',escalate:'Escalated'}[decision]||decision;
+  const colorMap={approve:'#0E8A6E',reject:'#D81E3F',escalate:'#C2410C',acknowledge_incomplete:'#4B5563'};
+  const verb={approve:'Approved',reject:'Rejected',escalate:'Escalated',acknowledge_incomplete:'Acknowledged'}[decision]||decision;
   toast(`Checkpoint ${verb.toLowerCase()} — control returned to orchestrator`, colorMap[decision]);
   // system divider in timeline
   const sys=el('div','sysrow');
@@ -991,7 +1034,7 @@ function onResolved(decision, local){
   tag.innerHTML=`<svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>HUMAN ${verb.toUpperCase()} — gate released</span>`;
   sys.appendChild(tag); sys.appendChild(el('span','line'));
   addRow(sys,true);
-  [$('#btnApprove'),$('#btnReject'),$('#btnEscalate')].forEach(b=>b.disabled=false);
+  [$('#btnApprove'),$('#btnReject'),$('#btnEscalate'),$('#btnAcknowledge')].forEach(b=>{ if(b && !b.hidden) b.disabled=false; });
   setState(State.mode==='demo'?'running':'live', State.mode==='demo'?'Running (demo)':'Live');
   if(State.mode==='demo') Mock.resume(decision);
 }
@@ -1065,13 +1108,113 @@ function renderPatchVerified(f){
       </div>
     </div>`;
 }
+function terminalRiskLabel(f){
+  const outcome = String(f.outcome||'');
+  const dyn = f.dynamic_verification_status || (outcome === 'dynamic_verification_unavailable' ? 'unavailable' : 'passed');
+  if(outcome === 'tool_failure') return 'Unverified';
+  if(outcome === 'dynamic_verification_unavailable' || dyn === 'unavailable' || dyn === 'incomplete') return 'Unverified';
+  if(dyn === 'failed') return 'Unverified';
+  return fmtPct(f.residual_risk_pct);
+}
+function terminalExplanation(f){
+  const desc = String(f.residual_risk_description || '').trim();
+  if(desc) return desc;
+  if(String(f.outcome||'') === 'tool_failure') return 'Patch staging failed, no staged source exists.';
+  if(String(f.outcome||'') === 'dynamic_verification_unavailable') return 'Static audit completed, but dynamic verification was unavailable.';
+  return '';
+}
+function terminalOutcomeLabel(f){
+  const outcome = String(f.outcome||'complete');
+  const desc = terminalExplanation(f).toLowerCase();
+  if(outcome === 'tool_failure' && (desc.includes('patch staging') || desc.includes('staged source') || desc.includes('patch_id'))){
+    return 'patch staging failed / tool failure';
+  }
+  return outcome.replace(/_/g,' ');
+}
+function terminalProposalLabel(f){
+  return f.final_proposal || 'unavailable';
+}
+function renderEfficiencySkipped(f){
+  ensureResults();
+  const body = $('#effBody');
+  if(!body || body.querySelector('table.eff')) return;
+  const uploaded = (State.selectedTarget||f.target||'').includes('/audit_workdir/') || (State.selectedTarget||f.target||'').includes('/uploads/');
+  body.innerHTML = `
+    <div class="verdict">${uploaded ? 'Benchmark skipped for uploaded target.' : 'Benchmark not available for this single-contract run.'}</div>
+    <div class="recs">
+      <div class="mrec"><span class="rl">outcome</span><span class="rid">${esc(terminalOutcomeLabel(f))}</span></div>
+      <div class="mrec"><span class="rl">proposal</span><span class="rid">${esc(terminalProposalLabel(f))}</span></div>
+      <div class="mrec"><span class="rl">risk</span><span class="rid">${esc(terminalRiskLabel(f))}</span></div>
+      <div class="mrec"><span class="rl">sim traces</span><span class="rid">${State.sim.length}</span></div>
+    </div>`;
+  const badge=$('#effBadge');
+  if(badge){ badge.style.display='inline-block'; badge.textContent='skipped'; badge.style.background='var(--hair-2)'; badge.style.color='var(--ink-3)'; }
+}
+function renderCrossSessionSkipped(f){
+  ensureResults();
+  const body=$('#memBody');
+  if(!body || !/Awaiting memory comparison/.test(body.textContent||'')) return;
+  const uploaded = (State.selectedTarget||f.target||'').includes('/audit_workdir/') || (State.selectedTarget||f.target||'').includes('/uploads/');
+  body.innerHTML = `
+    <div class="verdict">${uploaded ? 'Not applicable for a single uploaded run.' : 'Not applicable for a single-target run.'} Cross-session comparison appears in the full showcase.</div>
+    <div class="recs">
+      <div class="mrec"><span class="rl">top memory</span><span class="rid">${esc(f.top_memory||'—')}</span></div>
+      <div class="mrec"><span class="rl">mode</span><span class="rid">${State.selectedTarget?'single target':'full showcase'}</span></div>
+    </div>`;
+}
+function resolveTerminalPayoffFallbacks(f){
+  renderEfficiencySkipped(f);
+  renderCrossSessionSkipped(f);
+}
+function renderRunSummary(f){
+  const r = ensureResults();
+  let card = $('#runSummaryCard');
+  if(!card){
+    card = el('div','pcard');
+    card.id='runSummaryCard';
+    card.style.gridColumn='1/-1';
+    $('.payoff', r).insertBefore(card, $('.payoff', r).firstChild);
+  }
+  const outcome = terminalOutcomeLabel(f);
+  const explanation = terminalExplanation(f);
+  card.innerHTML = `
+    <div class="ph"><span class="label">Final run result</span><span class="badge" style="background:var(--hair-2);color:var(--ink-3)">${esc(outcome)}</span></div>
+    <div class="mem">
+      <div class="recs">
+        <div class="mrec"><span class="rl">target</span><span class="rid">${esc(f.target||State.target||'—')}</span></div>
+        <div class="mrec"><span class="rl">final proposal</span><span class="rid">${esc(terminalProposalLabel(f))}</span></div>
+        <div class="mrec"><span class="rl">residual risk</span><span class="rid">${esc(terminalRiskLabel(f))}</span></div>
+        <div class="mrec"><span class="rl">memory</span><span class="rid">${esc(f.top_memory||'—')}</span></div>
+      </div>
+      ${explanation?`<div class="verdict">${esc(explanation)}</div>`:''}
+    </div>`;
+}
+function finishRun(f={}, opts={}){
+  State.isRunning=false;
+  State.status='complete';
+  State.lastRunResult=f;
+  renderRunSummary(f);
+  updateTelem({risk:f.residual_risk_pct, outcome:f.outcome});
+  if(terminalRiskLabel(f)!==fmtPct(f.residual_risk_pct)){
+    dom.tRisk.textContent=terminalRiskLabel(f);
+    dom.tRisk.className='v';
+  }
+  if(opts.terminal){
+    resolveTerminalPayoffFallbacks(f);
+    setState('done', State.mode==='demo' ? 'Complete (demo)' : 'Complete');
+    setRunButtonIdle('Run again');
+    setPickerDisabled(false);
+  }
+}
 function renderRunComplete(f){
+  const terminal = !!State.selectedTarget || f.run_id==='upload';
   setState('done', State.mode==='demo' ? 'Run complete (demo)' : 'Run complete');
   updateTelem({risk:f.residual_risk_pct, outcome:f.outcome});
+  finishRun(f, {terminal});
   const sys=el('div','sysrow');
   sys.innerHTML='<span class="line"></span>';
   const tag=el('span','tag decision');
-  tag.innerHTML=`<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="m8.5 12 2.4 2.4 4.6-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>RUN COMPLETE · ${esc(f.target? f.target.split('/').pop():'')} · outcome: ${esc((f.outcome||'').replace(/_/g,' '))} · final: ${esc(f.final_proposal||'—')}</span>`;
+  tag.innerHTML=`<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="m8.5 12 2.4 2.4 4.6-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>RUN COMPLETE · ${esc(f.target? f.target.split('/').pop():'')} · outcome: ${esc(terminalOutcomeLabel(f))} · final: ${esc(terminalProposalLabel(f))}</span>`;
   sys.appendChild(tag); sys.appendChild(el('span','line'));
   addRow(sys,true);
 }
@@ -1098,11 +1241,7 @@ function dispatch(f){
     case 'run_error':
       setState('halted','Error'); toast('Run error: '+(f.error||'unknown'),'#D81E3F'); break;
     case 'all_complete':
-      setState('done', State.mode==='demo'?'Complete (demo)':'Complete');
-      dom.runLabel.textContent='Run again'; dom.runBtn.disabled=false;
-      setPickerDisabled(false);
-      $('.spinner',dom.runBtn)&&$('.spinner',dom.runBtn).remove();
-      if(!dom.runBtn.querySelector('svg')) dom.runBtn.insertBefore(playIcon(),dom.runBtn.firstChild);
+      finishRun(State.lastRunResult||{}, {terminal:true});
       break;
   }
 }
@@ -1145,9 +1284,10 @@ const api = {
     const r = await fetch('/checkpoint/'+encodeURIComponent(runId), {
       method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
     });
-    if(r.status===409) throw new Error('409 — no gate open');
-    if(!r.ok) throw new Error('POST /checkpoint → '+r.status);
-    return r.json().catch(()=>({}));
+    const d = await r.json().catch(()=>({}));
+    if(r.status===409) throw new Error(d.error || '409 — no gate open');
+    if(!r.ok) throw new Error(d.error || ('POST /checkpoint → '+r.status));
+    return d;
   }
 };
 function normalizeTrace(t){ const o={trace_id:t.trace_id, tool:t.tool, summary:t.summary};
@@ -1429,9 +1569,17 @@ const EVIDENCE_EMPTY = dom.evidence.innerHTML;
 
 /* ---------------- Run button ---------------- */
 function runningUI(){
+  State.isRunning=true;
+  State.status='running';
   dom.runBtn.disabled=true;
   dom.runBtn.innerHTML='<span class="spinner"></span><span id="runLabel">Auditing…</span>';
+  dom.runLabel=$('#runLabel');
   // reset telemetry display handled by callers
+}
+function setRunButtonIdle(label){
+  dom.runBtn.disabled=false;
+  dom.runBtn.innerHTML='<svg viewBox="0 0 24 24" fill="none"><path d="M7 5.5v13l11-6.5L7 5.5Z" fill="currentColor"/></svg><span id="runLabel">'+esc(label||'Run audit')+'</span>';
+  dom.runLabel=$('#runLabel');
 }
 function setPickerDisabled(disabled){
   if(!dom.targetDD) return;
@@ -1441,17 +1589,17 @@ function setPickerDisabled(disabled){
 async function startRun(){
   // fresh run resets timeline in live mode too
   if(State.mode==='live'){
-    State.sim=[]; State.resultsEl=null; State.traces={};
+    connectSSE();
+    State.sim=[]; State.resultsEl=null; State.traces={}; State.lastRunResult=null; State.status='running'; State.isRunning=true;
     dom.timeline.innerHTML=''; dom.simlog.innerHTML='<div class="empty-sm">EVM simulation calls will appear here as the audit runs.</div>';
     dom.simLogCt.textContent='0 calls'; dom.simCnt.textContent='0';
     dom.evidence.innerHTML=EVIDENCE_EMPTY;
     dom.tRisk.textContent='—'; dom.tRisk.className='v'; dom.tIter.textContent='—'; dom.tOutcome.textContent='—';
     runningUI();
     setPickerDisabled(true);
-    if(!evtSource) connectSSE();
   }
   try{ await api.run(State.selectedTarget || null); }
-  catch(e){ toast('Could not start run: '+(e.message||'error'),'#D81E3F'); dom.runBtn.disabled=false; setPickerDisabled(false); dom.runLabel&&(dom.runLabel.textContent='Run audit'); dom.runBtn.innerHTML='<svg viewBox="0 0 24 24" fill="none"><path d="M7 5.5v13l11-6.5L7 5.5Z" fill="currentColor"/></svg><span id="runLabel">Run audit</span>'; }
+  catch(e){ toast('Could not start run: '+(e.message||'error'),'#D81E3F'); State.isRunning=false; State.status='idle'; setPickerDisabled(false); setRunButtonIdle('Run audit'); }
 }
 
 /* ---------------- Wire up ---------------- */
@@ -1459,6 +1607,7 @@ dom.runBtn.addEventListener('click', startRun);
 $('#btnApprove').addEventListener('click', ()=>resolveCheckpoint('approve'));
 $('#btnReject').addEventListener('click', ()=>resolveCheckpoint('reject'));
 $('#btnEscalate').addEventListener('click', ()=>resolveCheckpoint('escalate'));
+$('#btnAcknowledge').addEventListener('click', ()=>resolveCheckpoint('acknowledge_incomplete'));
 dom.modeLive.addEventListener('click', ()=>setMode('live'));
 dom.modeDemo.addEventListener('click', ()=>setMode('demo'));
 dom.inspToggle.addEventListener('click', ()=>dom.inspector.classList.toggle('open'));

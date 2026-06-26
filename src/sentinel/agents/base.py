@@ -261,6 +261,7 @@ class AgentBase:
             },
             {"role": "user", "content": user_message},
         ]
+        tool_trace_ids: list[str] = []
         repairs_left = self._max_output_repairs
         for _ in range(self._max_tool_iterations):
             tool_schemas = [t.to_openai() for t in self._tools] or None
@@ -270,6 +271,7 @@ class AgentBase:
                 messages.append(_assistant_message(response))
                 for call in response.tool_calls:
                     result = self._dispatch(call)
+                    tool_trace_ids += _collect_trace_ids(result)
                     messages.append(
                         {
                             "role": "tool",
@@ -282,8 +284,9 @@ class AgentBase:
             if schema is None:
                 return response.content or ""
             try:
-                return self._parse_output(response.content, schema)
-            except AgentOutputError:
+                parsed = self._parse_output(response.content, schema)
+                return self._source_model_trace_ids(parsed, tool_trace_ids)
+            except AgentOutputError as exc:
                 if repairs_left <= 0:
                     raise
                 repairs_left -= 1
@@ -295,7 +298,8 @@ class AgentBase:
                         "role": "user",
                         "content": (
                             "That was not valid JSON for the required schema. "
-                            "Reply with ONLY the JSON object, no prose or fences."
+                            f"Validation error: {exc}. Reply with ONLY the JSON "
+                            "object, no prose or fences."
                         ),
                     }
                 )
@@ -317,7 +321,11 @@ class AgentBase:
             self._log.error(
                 "[DEGRADED] tool call failed", tool=call.name, error=str(exc)
             )
-            return {"error": str(exc)}
+            result = {"error": str(exc)}
+            trace_id = getattr(exc, "trace_id", None)
+            if trace_id:
+                result["trace_id"] = trace_id
+            return result
 
     def _parse_output(self, content: str | None, schema: type[BaseModel]) -> BaseModel:
         """Parse model text into ``schema`` (enforces e.g. trace_ids)."""
@@ -336,6 +344,32 @@ class AgentBase:
             raise AgentOutputError(
                 f"{self.role.value}: reply did not match {schema.__name__}: {exc}"
             ) from exc
+
+    def _source_model_trace_ids(
+        self, parsed: BaseModel, tool_trace_ids: list[str]
+    ) -> BaseModel:
+        """Clamp model-supplied trace_ids to real traces from this tool turn."""
+        if not tool_trace_ids or not hasattr(parsed, "trace_ids"):
+            return parsed
+        cited = list(parsed.trace_ids)
+        known = set(tool_trace_ids)
+        valid = [trace_id for trace_id in cited if trace_id in known]
+        if valid:
+            if valid == cited:
+                return parsed
+            self._log.debug(
+                "model cited unknown trace_ids",
+                cited=cited,
+                valid=valid,
+            )
+            return parsed.model_copy(update={"trace_ids": valid})
+        fallback = tool_trace_ids[-1:]
+        self._log.debug(
+            "model cited unknown trace_ids",
+            cited=cited,
+            fallback=fallback,
+        )
+        return parsed.model_copy(update={"trace_ids": fallback})
 
     @staticmethod
     def _compose_system_prompt(
@@ -380,6 +414,37 @@ def _json_dumps(obj: Any) -> str:
         return str(value)
 
     return json.dumps(obj, default=_default)
+
+
+def _collect_trace_ids(value: Any) -> list[str]:
+    """Extract trace_id fields from tool results, including nested models."""
+    if isinstance(value, BaseModel):
+        return _collect_trace_ids(value.model_dump(mode="json"))
+    if isinstance(value, dict):
+        found: list[str] = []
+        trace_id = value.get("trace_id")
+        if isinstance(trace_id, str) and trace_id.strip():
+            found.append(trace_id)
+        for child in value.values():
+            found += _collect_trace_ids(child)
+        return _dedup(found)
+    if isinstance(value, (list, tuple)):
+        list_found: list[str] = []
+        for child in value:
+            list_found += _collect_trace_ids(child)
+        return _dedup(list_found)
+    return []
+
+
+def _dedup(items: list[str]) -> list[str]:
+    """Order-preserving de-duplication."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
 
 
 def _extract_json(text: str) -> str:

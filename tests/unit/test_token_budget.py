@@ -32,9 +32,7 @@ def test_rejects_degenerate_budget() -> None:
 
 def test_ledger_totals_and_steps() -> None:
     ledger = TokenLedger()
-    ledger.record(
-        "adversary", "simulate", "qwen3-max-thinking", tokens=120, trace_id="t1"
-    )
+    ledger.record("adversary", "simulate", "qwen3-max", tokens=120, trace_id="t1")
     ledger.record("yield", "evaluate", "qwen3-coder-plus", tokens=30)
     ledger.record("lessons", "recall", "qwen-plus")  # unknown usage -> 0
     assert ledger.total == 150  # lower bound — unknown counts contribute 0

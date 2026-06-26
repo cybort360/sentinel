@@ -85,3 +85,100 @@ def test_read_and_list_work_on_the_repo(engine: CodebaseEngine) -> None:
     assert "SubscriptionBilling" in read.summary.contracts
     listing = engine.list_functions(_REL)
     assert any(f.name == "cancelSubscription" for f in listing.functions)
+
+
+def test_uploaded_contract_patch_staging_produces_diff(
+    engine: CodebaseEngine,
+) -> None:
+    rel = "sandbox/contracts/audit_workdir/VulnerableSubscriptionVault.sol"
+    source = """
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract VulnerableSubscriptionVault {
+    mapping(address => uint256) public balances;
+
+    function deposit() external payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    function withdraw() external {
+        uint256 amount = balances[msg.sender];
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        require(ok, "send failed");
+        balances[msg.sender] = 0;
+    }
+}
+"""
+    fixed = source.replace(
+        '(bool ok, ) = msg.sender.call{value: amount}("");\n'
+        '        require(ok, "send failed");\n'
+        "        balances[msg.sender] = 0;",
+        "balances[msg.sender] = 0;\n"
+        '        (bool ok, ) = msg.sender.call{value: amount}("");\n'
+        '        require(ok, "send failed");',
+    )
+    path = engine._config.repo_root / rel
+    path.parent.mkdir(parents=True)
+    path.write_text(source)
+
+    result = engine.propose_patch(rel, fixed)
+    diff = engine.diff_patch(result.patch_id).diff
+
+    assert result.patch_id
+    assert diff.strip()
+    assert "balances[msg.sender] = 0;" in diff
+    assert path.read_text() == source
+
+
+def test_uploaded_staged_patch_compiles_and_records_artifact(tmp_path: Path) -> None:
+    if shutil.which("git") is None or shutil.which("forge") is None:
+        pytest.skip("git/forge not installed")
+    _init_git_repo(tmp_path)
+    sandbox = tmp_path / "sandbox"
+    (sandbox / "contracts" / "audit_workdir").mkdir(parents=True)
+    (sandbox / "foundry.toml").write_text("[profile.default]\nsrc = 'contracts'\n")
+    rel = "sandbox/contracts/audit_workdir/VulnerableSubscriptionVault.sol"
+    original = """
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract VulnerableSubscriptionVault {
+    uint256 public total;
+
+    function deposit() external payable {
+        total += msg.value;
+    }
+}
+"""
+    patched = original.replace(
+        "uint256 public total;",
+        "uint256 public total;\n    address public owner;",
+    )
+    target = tmp_path / rel
+    target.write_text(original)
+
+    engine = CodebaseEngine(CodebaseConfig(repo_root=tmp_path))
+    result = engine.propose_patch(rel, patched)
+
+    assert result.staged_source_path == (
+        f"sandbox/contracts/staged_patches/{result.patch_id}.sol"
+    )
+    assert result.contract_name == "VulnerableSubscriptionVault"
+    assert result.artifact_path == (
+        f"sandbox/out/{result.patch_id}.sol/VulnerableSubscriptionVault.json"
+    )
+    assert result.staged_artifact == (
+        f"{result.staged_source_path}:VulnerableSubscriptionVault"
+    )
+    assert (tmp_path / result.artifact_path).is_file()
+    assert "address public owner;" in (tmp_path / result.staged_source_path).read_text()
+
+
+def _init_git_repo(path: Path) -> None:
+    subprocess.run(["git", "init", "-b", "main"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t.t"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=path, check=True)
+    (path / "README.md").write_text("seed")
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-m", "seed"], cwd=path, check=True)

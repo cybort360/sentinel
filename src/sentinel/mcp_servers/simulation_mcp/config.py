@@ -34,6 +34,11 @@ class SimulationDegradedError(RuntimeError):
     and is always paired with a structured ``[DEGRADED]`` log entry (Rule 4).
     """
 
+    def __init__(self, message: str, *, trace_id: str | None = None) -> None:
+        """Store the degraded evidence trace id, when one was recorded."""
+        super().__init__(message)
+        self.trace_id = trace_id
+
 
 def assert_local_rpc(rpc_url: str, *, allowlist: frozenset[str] = LOCAL_HOSTS) -> None:
     """Reject any broadcast RPC URL that is not local (CLAUDE.md Golden Rule #3).

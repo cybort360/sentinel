@@ -2,10 +2,10 @@
 
 This is the Phase-2 plumbing behind the War Room's "Upload .sol" picker: it takes
 a contract a user opened from their own machine, drops it into the Foundry
-sandbox, compiles it with ``forge build``, and resolves the compiled artifact so
-:class:`SimulationEngine` can deploy it to the local Anvil fork. It is the
-SENTINEL-specific wiring injected into the generic web app, so the dependency
-only ever points demo -> src.
+sandbox, compiles that source with ``forge build <path>``, and resolves the
+compiled artifact so :class:`SimulationEngine` can deploy it to the local fork.
+It is the SENTINEL-specific wiring injected into the generic web app, so the
+dependency only ever points demo -> src.
 
 Golden Rules: the contract is written under the sandbox sources and compiled +
 deployed to the **local fork only** (Rule 3 — nothing here touches a real
@@ -67,13 +67,14 @@ def save_and_compile(
     source: bytes,
     *,
     sandbox_dir: Path,
-    contracts_subdir: str = "contracts/uploads",
+    contracts_subdir: str = "contracts/audit_workdir",
 ) -> UploadedContract:
     """Write an uploaded contract into the sandbox and compile it.
 
-    Uploads land in a gitignored ``contracts/uploads/`` subdir — kept separate
-    from the committed demo contracts, but still under the Foundry ``src`` so
-    ``forge build`` (which compiles ``contracts`` recursively) picks them up.
+    Uploads land in ``contracts/audit_workdir/``, kept separate from the
+    committed demo contracts but still git-stagable for CodebaseMCP patch
+    branches. Compilation targets only the new source file, so an old failed
+    upload cannot poison later demo or upload builds.
 
     Args:
         filename: The uploaded filename; its stem becomes the source filename.
@@ -94,7 +95,11 @@ def save_and_compile(
     dest = sandbox_dir / contracts_subdir / f"{stem}.sol"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(source)
-    _forge_build(sandbox_dir)
+    try:
+        _forge_build(sandbox_dir, dest.relative_to(sandbox_dir).as_posix())
+    except CompileError:
+        dest.unlink(missing_ok=True)
+        raise
     contract = _resolve_contract(sandbox_dir / "out" / f"{stem}.sol", stem)
     repo_root = sandbox_dir.parent
     rel = dest.relative_to(repo_root).as_posix()
@@ -130,11 +135,11 @@ def nullary_functions(
     return out
 
 
-def _forge_build(sandbox_dir: Path) -> None:
-    """Run ``forge build`` in the sandbox, raising CompileError on error."""
+def _forge_build(sandbox_dir: Path, target: str) -> None:
+    """Run ``forge build <target>`` in the sandbox, raising CompileError on error."""
     try:
         proc = subprocess.run(
-            ["forge", "build"],
+            ["forge", "build", target],
             cwd=sandbox_dir,
             capture_output=True,
             text=True,

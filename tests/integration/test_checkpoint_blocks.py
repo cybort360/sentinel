@@ -33,6 +33,7 @@ from sentinel.orchestrator.checkpoint import (
 from sentinel.orchestrator.graph import RunResult
 from sentinel.orchestrator.schema import (
     AdversaryReview,
+    DynamicVerificationStatus,
     Outcome,
     Proposal,
     RiskProfile,
@@ -116,7 +117,12 @@ def _response(
     )
 
 
-def _packet(*, residual: float = 0.04, with_proposal: bool = True) -> DecisionPacket:
+def _packet(
+    *,
+    residual: float = 0.04,
+    with_proposal: bool = True,
+    outcome: Outcome = Outcome.CONSENSUS,
+) -> DecisionPacket:
     proposal = (
         Proposal(
             proposal_id="p1",
@@ -152,10 +158,15 @@ def _packet(*, residual: float = 0.04, with_proposal: bool = True) -> DecisionPa
         ),
         risk_profile=RiskProfile(
             run_id="run-1",
-            outcome=Outcome.CONSENSUS,
-            final_proposal="patch-1",
+            outcome=outcome,
+            final_proposal="patch-1" if with_proposal else None,
             residual_risk_pct=residual,
-            residual_risk_description="guard holds; 12.9% gas cost",
+            residual_risk_description=(
+                "Patch staging failed for proposal prop_vsv_round1_v1: "
+                "proposal has no patch_id, so no staged source exists."
+                if outcome is Outcome.TOOL_FAILURE
+                else "guard holds; 12.9% gas cost"
+            ),
             mitigations_applied=["circuit-breaker on revert rate > 5%"],
             memory_records_used=["mem-batching-1"],
             iterations=1,
@@ -259,6 +270,43 @@ def test_request_more_analysis_requires_an_instruction() -> None:
         )
 
 
+def test_approve_without_staged_patch_is_rejected_by_checkpoint() -> None:
+    writer = FakeWriter()
+    gate = HumanCheckpoint(
+        ImmediateResponder(_response(CheckpointDecision.APPROVE)), writer
+    )
+
+    with pytest.raises(ValueError, match="staged patch_id"):
+        asyncio.run(gate.request(_packet(with_proposal=False)))
+
+    assert writer.calls == []
+
+
+def test_acknowledge_incomplete_audit_releases_gate() -> None:
+    writer = FakeWriter()
+    gate = HumanCheckpoint(
+        ImmediateResponder(
+            _response(
+                CheckpointDecision.ACKNOWLEDGE_INCOMPLETE,
+                rationale="no staged source exists",
+            )
+        ),
+        writer,
+    )
+
+    outcome = asyncio.run(
+        gate.request(_packet(with_proposal=False, outcome=Outcome.TOOL_FAILURE))
+    )
+
+    assert outcome.decision is CheckpointDecision.ACKNOWLEDGE_INCOMPLETE
+    assert outcome.approved is False
+    assert outcome.escalated is False
+    assert writer.calls
+    written = writer.calls[-1]
+    assert "tool_failure" in written["description"]
+    assert "acknowledge_incomplete" in written["description"]
+
+
 # --------------------------------------------------------------------------- #
 # §7.2.4 logging — the human response is appended to the run log
 # --------------------------------------------------------------------------- #
@@ -341,3 +389,83 @@ def test_build_decision_packet_and_gated_reasons() -> None:
     assert "patch" in reasons  # §7.1.2
     assert "residual risk" in reasons  # §7.1.1
     assert "unresolved Adversary veto" in reasons  # §7.1.3
+
+
+def test_tool_failure_packet_does_not_offer_patch_application() -> None:
+    run = RunResult(
+        run_id="run-tool-failure",
+        target="sandbox/contracts/audit_workdir/VulnerableSubscriptionVault.sol",
+        risk_profile=RiskProfile(
+            run_id="run-tool-failure",
+            outcome=Outcome.TOOL_FAILURE,
+            final_proposal="patch-9",
+            residual_risk_pct=0.0,
+            residual_risk_description="patch staging failed",
+            iterations=1,
+            tokens_total=42,
+            trace_ids=["sim-9"],
+        ),
+        final_proposal=Proposal(
+            proposal_id="p9",
+            run_id="run-tool-failure",
+            iteration=1,
+            patch_id="patch-9",
+            summary="batch settlement",
+            trace_ids=["sim-9"],
+        ),
+    )
+
+    packet = build_decision_packet(run, topic_tags=["uploaded-contract"])
+    reasons = " | ".join(packet.gated_reasons)
+
+    assert packet.proposal is not None
+    assert "Applying a patch" not in reasons
+    assert "tool failed" in reasons
+
+
+def test_dynamic_verification_unavailable_packet_allows_patch_approval() -> None:
+    run = RunResult(
+        run_id="run-dynamic-unavailable",
+        target="sandbox/contracts/audit_workdir/Unsupported.sol",
+        risk_profile=RiskProfile(
+            run_id="run-dynamic-unavailable",
+            outcome=Outcome.DYNAMIC_VERIFICATION_UNAVAILABLE,
+            final_proposal="patch-9",
+            residual_risk_pct=0.0,
+            residual_risk_description="dynamic verification unavailable",
+            iterations=1,
+            tokens_total=42,
+            trace_ids=["sim-9"],
+            dynamic_verification_status=DynamicVerificationStatus.UNAVAILABLE,
+        ),
+        final_proposal=Proposal(
+            proposal_id="p9",
+            run_id="run-dynamic-unavailable",
+            iteration=1,
+            patch_id="patch-9",
+            summary="static patch",
+            trace_ids=["sim-9"],
+        ),
+    )
+
+    packet = build_decision_packet(run, topic_tags=["uploaded-contract"])
+    outcome, writer = asyncio.run(_decide_packet(packet, CheckpointDecision.APPROVE))
+
+    assert outcome.approved is True
+    assert writer.calls
+    reasons = " | ".join(packet.gated_reasons)
+    assert "Applying a patch" in reasons
+    assert "Dynamic verification unavailable" in reasons
+    written = writer.calls[-1]
+    assert "Unverified" in str(written["description"])
+    assert "Unverified" in str(written["lesson_text"])
+    assert "0%" not in str(written["description"])
+    assert "0%" not in str(written["lesson_text"])
+
+
+async def _decide_packet(
+    packet: DecisionPacket, decision: CheckpointDecision
+) -> tuple[object, FakeWriter]:
+    writer = FakeWriter()
+    gate = HumanCheckpoint(ImmediateResponder(_response(decision)), writer)
+    return await gate.request(packet), writer

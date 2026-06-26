@@ -31,7 +31,7 @@ from sentinel.orchestrator.checkpoint import (
     HumanCheckpoint,
     apply_approved_patch,
 )
-from sentinel.orchestrator.schema import Outcome, RiskProfile
+from sentinel.orchestrator.schema import Outcome, Proposal, RiskProfile
 
 pytestmark = pytest.mark.integration
 
@@ -73,17 +73,30 @@ class _Responder:
         )
 
 
-def _packet() -> DecisionPacket:
+def _packet(patch_id: str | None) -> DecisionPacket:
+    proposal = (
+        Proposal(
+            proposal_id="proposal-apply",
+            run_id="run-apply",
+            iteration=1,
+            patch_id=patch_id,
+            summary="stage guarded billing contract",
+            trace_ids=["sim-apply-1"],
+        )
+        if patch_id is not None
+        else None
+    )
     return DecisionPacket(
         run_id="run-apply",
         target=_REL,
         gated_reasons=["Applying a patch to the protocol (§7.1.2)"],
-        proposal=None,
+        proposal=proposal,
         assessment=None,
         review=None,
         risk_profile=RiskProfile(
             run_id="run-apply",
             outcome=Outcome.CONSENSUS,
+            final_proposal=patch_id,
             residual_risk_pct=0.0,
             residual_risk_description="reentrancy guard closes the hole",
             iterations=1,
@@ -95,9 +108,9 @@ def _packet() -> DecisionPacket:
     )
 
 
-def _decide(decision: CheckpointDecision) -> CheckpointOutcome:
+def _decide(decision: CheckpointDecision, *, patch_id: str | None) -> CheckpointOutcome:
     gate = HumanCheckpoint(_Responder(decision))
-    return asyncio.run(gate.request(_packet()))
+    return asyncio.run(gate.request(_packet(patch_id)))
 
 
 def test_approval_applies_the_patch(engine: CodebaseEngine) -> None:
@@ -107,7 +120,7 @@ def test_approval_applies_the_patch(engine: CodebaseEngine) -> None:
     )
     assert "nonReentrant" not in canonical.read_text()  # not applied yet
 
-    outcome = _decide(CheckpointDecision.APPROVE)
+    outcome = _decide(CheckpointDecision.APPROVE, patch_id=staged.patch_id)
     result = apply_approved_patch(outcome, codebase=engine, patch_id=staged.patch_id)
 
     assert result is not None and result.applied
@@ -121,13 +134,13 @@ def test_rejection_leaves_canonical_untouched(engine: CodebaseEngine) -> None:
         _REL, (_SANDBOX / "SubscriptionBillingGuarded.sol").read_text()
     )
 
-    outcome = _decide(CheckpointDecision.REJECT)
+    outcome = _decide(CheckpointDecision.REJECT, patch_id=staged.patch_id)
     result = apply_approved_patch(outcome, codebase=engine, patch_id=staged.patch_id)
 
     assert result is None
     assert canonical.read_text() == before  # a reject never applies
 
 
-def test_no_patch_id_is_a_noop(engine: CodebaseEngine) -> None:
-    outcome = _decide(CheckpointDecision.APPROVE)
-    assert apply_approved_patch(outcome, codebase=engine, patch_id=None) is None
+def test_no_patch_id_cannot_be_approved() -> None:
+    with pytest.raises(ValueError, match="staged patch_id"):
+        _decide(CheckpointDecision.APPROVE, patch_id=None)

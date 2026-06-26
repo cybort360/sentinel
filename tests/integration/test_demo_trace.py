@@ -27,7 +27,6 @@ from __future__ import annotations
 import asyncio
 import io
 import shutil
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -35,6 +34,7 @@ import pytest
 from demo.run_demo import AutoApproveResponder, DemoReport, run_demo
 from rich.console import Console
 from structlog.testing import capture_logs
+from tests.integration.sandbox_build import build_demo_contracts
 
 from sentinel.mcp_servers.codebase_mcp.config import CodebaseConfig
 from sentinel.mcp_servers.codebase_mcp.engine import CodebaseEngine
@@ -72,7 +72,7 @@ def demo_run() -> Iterator[tuple[list[dict[str, object]], DemoReport]]:
     """Boot a real sandbox, run the whole demo once, capture (logs, report)."""
     if shutil.which("anvil") is None or shutil.which("forge") is None:
         pytest.skip("Foundry (anvil/forge) not installed")
-    subprocess.run(["forge", "build"], cwd=_SANDBOX, check=True)
+    build_demo_contracts(_SANDBOX)
 
     anvil = AnvilProcess(host="127.0.0.1", port=_TEST_PORT)
     anvil.start()

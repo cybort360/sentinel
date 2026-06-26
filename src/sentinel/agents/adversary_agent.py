@@ -30,14 +30,14 @@ class AdversaryAgent(AgentBase):
         model: str,
         tools: list[Tool] | None = None,
         prompts_dir: Path | None = None,
-        max_tool_iterations: int = 8,
+        max_tool_iterations: int = 12,
         max_output_repairs: int = 1,
     ) -> None:
         """Configure the Adversary Agent.
 
         Args:
             client: The LLM client (real ``QwenClient`` or a test fake).
-            model: Model id (``qwen3-max-thinking`` per §4.2, from config/.env).
+            model: Model id (``qwen3-max`` by default, from config/.env).
             tools: SimulationMCP + CodebaseMCP read tools; build via
                 :meth:`default_tools`.
             prompts_dir: Override the prompts directory (tests).

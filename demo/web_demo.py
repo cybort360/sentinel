@@ -26,7 +26,6 @@ from typing import Any
 
 import uvicorn
 from demo.contract_upload import (
-    constructor_is_nullary,
     nullary_functions,
     save_and_compile,
 )
@@ -35,10 +34,12 @@ from demo.run_demo import (
     _build_engines,
     _build_vault_graph,
     _measure_efficiency,
+    _resolve_live,
     _run_baseline,
 )
 from rich.console import Console
 
+from sentinel.agents.factory import build_war_room
 from sentinel.observability.trace_logger import register_sink
 from sentinel.orchestrator.checkpoint import (
     HumanCheckpoint,
@@ -112,17 +113,18 @@ def _plumbing_probe(
     except Exception as exc:  # noqa: BLE001 — degrade, never crash (Rule 4)
         bus.publish(_sys_note(f"[DEGRADED] could not read {target}: {exc}"))
         return
-    if not constructor_is_nullary(contract, _ARTIFACTS_DIR):
-        bus.publish(
-            _sys_note(
-                f"{contract}: constructor takes arguments — deploy skipped "
-                "(static read only). Live agents would synthesise a deployment."
-            )
-        )
-        return
     try:
         deployed = simulation.deploy_to_fork(contract, [])
     except Exception as exc:  # noqa: BLE001 — degrade, never crash (Rule 4)
+        message = str(exc)
+        if "dynamic_verification_unavailable" in message:
+            bus.publish(
+                _sys_note(
+                    f"{contract}: dynamic verification unavailable after constructor "
+                    f"inference ({message}); static read completed."
+                )
+            )
+            return
         bus.publish(_sys_note(f"[DEGRADED] deploy failed for {contract}: {exc}"))
         return
     for fn in nullary_functions(contract, _ARTIFACTS_DIR):
@@ -164,6 +166,37 @@ async def _run_plumbing(
     )
 
 
+async def _run_uploaded_live(
+    target: str,
+    contract: str,
+    *,
+    simulation: Any,
+    codebase: Any,
+    memory: Any,
+    responder: HumanResponder,
+    bus: TraceBus,
+    live: tuple[Any, Any],
+) -> None:
+    """Run an uploaded contract through the live Qwen War Room."""
+    client, config = live
+    graph = build_war_room(
+        client=client,
+        config=config,
+        simulation=simulation,
+        codebase=codebase,
+        memory=memory,
+    )
+    await _run_one(
+        graph,
+        target,
+        f"upload-{contract.lower()}",
+        topic_tags=["uploaded-contract", contract.lower()],
+        responder=responder,
+        memory=memory,
+        bus=bus,
+    )
+
+
 async def _run_one(
     graph: WarRoomGraph,
     target: str,
@@ -197,6 +230,7 @@ async def _run_one(
             "target": target,
             "outcome": result.risk_profile.outcome.value,
             "residual_risk_pct": result.risk_profile.residual_risk_pct,
+            "residual_risk_description": result.risk_profile.residual_risk_description,
             "final_proposal": result.risk_profile.final_proposal,
             "top_memory": top_memory,
         }
@@ -296,6 +330,7 @@ def main() -> None:
     """Wire engines + graphs + the web app, then serve it with uvicorn."""
     console = Console()
     simulation, codebase, memory = _build_engines()
+    live = _resolve_live(console)
     bus = TraceBus()
     responder = WebResponder(bus)
 
@@ -376,9 +411,21 @@ def main() -> None:
         else:
             entry = next((t for t in targets if t["path"] == target), None)
             contract = entry["contract"] if entry else Path(target).stem
-            await _run_plumbing(
-                target, contract, simulation=simulation, codebase=codebase, bus=bus
-            )
+            if live is not None:
+                await _run_uploaded_live(
+                    target,
+                    contract,
+                    simulation=simulation,
+                    codebase=codebase,
+                    memory=memory,
+                    responder=responder,
+                    bus=bus,
+                    live=live,
+                )
+            else:
+                await _run_plumbing(
+                    target, contract, simulation=simulation, codebase=codebase, bus=bus
+                )
 
     app = create_app(
         bus=bus,

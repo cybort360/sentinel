@@ -71,6 +71,22 @@ class ProposeResult(BaseModel):
     path: str
     branch: str
     base_commit: str
+    staged_source_path: str | None = None
+    staged_artifact: str | None = None
+    contract_name: str | None = None
+    artifact_path: str | None = None
+    original_target_path: str | None = None
+
+
+class StagedPatchMetadata(BaseModel):
+    """Compiled staged-patch metadata used for dynamic verification."""
+
+    patch_id: str
+    staged_source_path: str
+    contract_name: str
+    artifact_path: str
+    original_target_path: str
+    deploy_target: str
 
 
 class DiffResult(BaseModel):

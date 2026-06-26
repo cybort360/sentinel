@@ -11,11 +11,11 @@ Run with: ``make check-integration`` (requires Foundry installed).
 from __future__ import annotations
 
 import shutil
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from tests.integration.sandbox_build import build_demo_contracts
 
 from sentinel.mcp_servers.simulation_mcp.anvil import AnvilProcess
 from sentinel.mcp_servers.simulation_mcp.config import SimulationConfig
@@ -34,7 +34,7 @@ def engine() -> Iterator[SimulationEngine]:
     """Compile the sandbox, boot a fresh Anvil, yield an engine."""
     if shutil.which("anvil") is None or shutil.which("forge") is None:
         pytest.skip("Foundry (anvil/forge) not installed")
-    subprocess.run(["forge", "build"], cwd=_SANDBOX, check=True)
+    build_demo_contracts(_SANDBOX)
     anvil = AnvilProcess(host="127.0.0.1", port=_TEST_PORT)
     anvil.start()
     try:

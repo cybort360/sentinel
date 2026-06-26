@@ -25,17 +25,20 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from sentinel.mcp_servers.codebase_mcp.results import ProposeResult
 from sentinel.observability.trace_logger import DemoTag, emit, get_logger
 from sentinel.orchestrator.schema import (
     AdversaryReview,
     BaselineAudit,
     Constraint,
+    DynamicVerificationStatus,
     LessonsContext,
     Outcome,
     Proposal,
     Resolution,
     RiskProfile,
     RoundAdjudication,
+    Severity,
     Veto,
     YieldAssessment,
     YieldVerdict,
@@ -134,6 +137,10 @@ class _LoopResult:
     # The Arbitrator's per-round conflict rulings (architecture.md §4.3) — the
     # negotiation transcript surfaced for the human gate / UI (Track 3).
     negotiation: list[RoundAdjudication]
+    # Tool/orchestration failure that prevented a protocol-level disagreement
+    # from being evaluated. This is not an Adversary veto.
+    tool_failure_reason: str | None = None
+    dynamic_verification_reason: str | None = None
 
 
 class RunResult(BaseModel):
@@ -162,20 +169,33 @@ class RunResult(BaseModel):
     negotiation: list[RoundAdjudication] = Field(default_factory=list)
 
 
-def _annotate_residual_risk(profile: RiskProfile) -> None:
+def _annotate_residual_risk(
+    profile: RiskProfile, *, headline_trace_id: str | None = None
+) -> None:
     """Emit the §10 ``[ANNOTATED RESIDUAL RISK]`` line from the RiskProfile.
 
     Rendered from the structured profile (Rule 1: cites a real trace id), not
     written as separate narration.
     """
+    if (
+        profile.outcome is Outcome.DYNAMIC_VERIFICATION_UNAVAILABLE
+        or profile.dynamic_verification_status
+        in (
+            DynamicVerificationStatus.UNAVAILABLE,
+            DynamicVerificationStatus.INCOMPLETE,
+        )
+    ):
+        label = "Unverified"
+    else:
+        label = f"{profile.residual_risk_pct:.0%}"
     emit(
         _log,
         DemoTag.ANNOTATED_RESIDUAL_RISK,
-        f"{profile.residual_risk_pct:.0%} — {profile.residual_risk_description}",
+        f"{label} - {profile.residual_risk_description}",
         run_id=profile.run_id,
         agent="arbitrator",
         action="risk_profile",
-        trace_id=profile.trace_ids[0],
+        trace_id=headline_trace_id or profile.trace_ids[0],
         residual_risk_pct=profile.residual_risk_pct,
         outcome=profile.outcome.value,
     )
@@ -262,6 +282,82 @@ def _emit_proposal(proposal: Proposal, run_id: str, iteration: int) -> None:
         iteration=iteration,
         trace_id=proposal.trace_ids[0],
         patch_id=proposal.patch_id,
+    )
+
+
+def _source_proposal(proposal: Proposal, known_trace_ids: list[str]) -> Proposal:
+    """Keep proposal evidence tied to real traces already produced in this run."""
+    known = set(known_trace_ids)
+    valid = [trace_id for trace_id in proposal.trace_ids if trace_id in known]
+    if valid:
+        return proposal.model_copy(update={"trace_ids": valid})
+    fallback = known_trace_ids[-1:]
+    _log.debug(
+        "arbitrator proposal cited unknown trace_ids",
+        proposal_id=proposal.proposal_id,
+        cited=proposal.trace_ids,
+        fallback=fallback,
+    )
+    return proposal.model_copy(update={"trace_ids": fallback})
+
+
+def _residual_risk_description(loop: _LoopResult) -> str:
+    """Describe residual risk from the final agent positions, not free prose."""
+    if loop.outcome is Outcome.TOOL_FAILURE:
+        return loop.tool_failure_reason or "War Room stopped after tool failure."
+    if loop.outcome is Outcome.DYNAMIC_VERIFICATION_UNAVAILABLE:
+        return (
+            "Dynamic verification was unavailable, so the final proposal remains "
+            f"static-only: {loop.dynamic_verification_reason or loop.review.reason}"
+        )
+    if loop.outcome is Outcome.CONSENSUS:
+        return (
+            f"Final Adversary review cleared the proposal: {loop.review.reason}. "
+            f"Evidence: {loop.review.evidence}"
+        )
+    if loop.review.vetoed:
+        return (
+            f"Final Adversary veto remains unresolved: {loop.review.reason}. "
+            f"Evidence: {loop.review.evidence}"
+        )
+    return (
+        f"Final review did not veto, but Yield did not accept the proposal: "
+        f"{loop.assessment.rationale}. Adversary evidence: {loop.review.evidence}"
+    )
+
+
+def _missing_patch_assessment(
+    proposal: Proposal, run_id: str, iteration: int
+) -> YieldAssessment:
+    """Yield cannot evaluate a proposal that never staged a patch."""
+    return YieldAssessment(
+        run_id=run_id,
+        iteration=iteration,
+        verdict=YieldVerdict.REJECT,
+        rationale=(
+            f"Proposal {proposal.proposal_id} did not produce a staged patch, "
+            "so there is no implementation to evaluate for deployment."
+        ),
+        referenced_functions=["proposal_staging"],
+    )
+
+
+def _missing_patch_review(
+    proposal: Proposal, run_id: str, iteration: int
+) -> AdversaryReview:
+    """Adversary veto for a proposal with no staged patch artifact."""
+    return AdversaryReview(
+        run_id=run_id,
+        iteration=iteration,
+        target_proposal_id=proposal.proposal_id,
+        vetoed=True,
+        severity=Severity.HIGH,
+        reason=(
+            f"Proposal {proposal.proposal_id} did not produce a patch_id, so no "
+            "staged source exists to deploy or simulate."
+        ),
+        evidence="The Proposal.patch_id field is empty after the staging step.",
+        trace_ids=list(proposal.trace_ids),
     )
 
 
@@ -464,14 +560,87 @@ class WarRoomGraph:
 
         for n in range(1, self._budget.max_iterations + 1):
             iterations = n
-            proposal = self._arbitrator.propose(
-                _propose_task(target, run_id, n, last_veto, constraints)
+            latest_patch_before = self._latest_patch_id()
+            try:
+                proposal = self._arbitrator.propose(
+                    _propose_task(target, run_id, n, last_veto, constraints)
+                )
+            except Exception as exc:  # noqa: BLE001 — terminal tool failure
+                reason = f"Patch staging failed before proposal creation: {exc}"
+                _log.error(
+                    "[DEGRADED] arbitrator propose failed",
+                    run_id=run_id,
+                    iteration=n,
+                    error=str(exc),
+                )
+                emit(
+                    _log,
+                    DemoTag.SYSTEM_DECISION,
+                    f"[DEGRADED] {reason}",
+                    run_id=run_id,
+                    agent="orchestrator",
+                    action="tool_failure",
+                    trace_id=trace_ids[-1] if trace_ids else None,
+                    iteration=n,
+                )
+                return _LoopResult(
+                    outcome=Outcome.TOOL_FAILURE,
+                    final_proposal=None,
+                    assessment=assessment,
+                    review=review,
+                    iterations=n,
+                    trace_ids=trace_ids,
+                    memory_ids=memory_ids + finding_memory_ids,
+                    finding_memory_ids=finding_memory_ids,
+                    negotiation=negotiation,
+                    tool_failure_reason=reason,
+                )
+            proposal = self._attach_latest_patch_result(
+                _source_proposal(proposal, trace_ids), latest_patch_before
             )
+            proposal = self._attach_staged_artifact(target, proposal)
             ledger.record("arbitrator", f"propose_v{n}", self._arbitrator.model)
-            trace_ids += proposal.trace_ids
-            final_proposal = proposal
-            _emit_proposal(proposal, run_id, n)
 
+            if proposal.patch_id is None:
+                error = self._latest_patch_error()
+                reason = (
+                    f"Patch staging failed for proposal {proposal.proposal_id}: "
+                    "proposal has no patch_id, so no staged source exists."
+                )
+                if error:
+                    reason = f"{reason} CodebaseMCP.propose_patch error: {error}"
+                _log.error(
+                    "[DEGRADED] arbitrator proposal missing patch_id",
+                    proposal_id=proposal.proposal_id,
+                    trace_id=proposal.trace_ids[0],
+                    propose_patch_error=error,
+                )
+                emit(
+                    _log,
+                    DemoTag.SYSTEM_DECISION,
+                    f"[DEGRADED] {reason}",
+                    run_id=run_id,
+                    agent="orchestrator",
+                    action="tool_failure",
+                    trace_id=proposal.trace_ids[0],
+                    iteration=n,
+                )
+                return _LoopResult(
+                    outcome=Outcome.TOOL_FAILURE,
+                    final_proposal=None,
+                    assessment=assessment,
+                    review=review,
+                    iterations=n,
+                    trace_ids=trace_ids,
+                    memory_ids=memory_ids + finding_memory_ids,
+                    finding_memory_ids=finding_memory_ids,
+                    negotiation=negotiation,
+                    tool_failure_reason=reason,
+                )
+
+            trace_ids += proposal.trace_ids
+            _emit_proposal(proposal, run_id, n)
+            final_proposal = proposal
             assessment = self._yield.assess(_evaluate_task(proposal))
             ledger.record("yield", f"evaluate_v{n}", self._yield.model)
             _emit_yield_assessment(assessment, run_id, n)
@@ -483,6 +652,77 @@ class WarRoomGraph:
                 trace_id=review.trace_ids[0],
             )
             trace_ids += review.trace_ids
+
+            if _is_dynamic_verification_unavailable(review):
+                reason = (
+                    "Dynamic verification unavailable for the staged proposal: "
+                    f"{review.reason}"
+                )
+                _log.warning(
+                    "dynamic verification unavailable",
+                    run_id=run_id,
+                    iteration=n,
+                    trace_id=review.trace_ids[0],
+                    reason=review.reason,
+                )
+                emit(
+                    _log,
+                    DemoTag.SYSTEM_DECISION,
+                    reason,
+                    run_id=run_id,
+                    agent="orchestrator",
+                    action="dynamic_verification_unavailable",
+                    trace_id=review.trace_ids[0],
+                    iteration=n,
+                )
+                return _LoopResult(
+                    outcome=Outcome.DYNAMIC_VERIFICATION_UNAVAILABLE,
+                    final_proposal=proposal,
+                    assessment=assessment,
+                    review=review,
+                    iterations=n,
+                    trace_ids=trace_ids,
+                    memory_ids=memory_ids + finding_memory_ids,
+                    finding_memory_ids=finding_memory_ids,
+                    negotiation=negotiation,
+                    dynamic_verification_reason=reason,
+                )
+
+            if _is_patch_verification_tool_failure(review):
+                reason = (
+                    "Patch verification failed before protocol risk could be "
+                    f"adjudicated: {review.reason}"
+                )
+                _log.error(
+                    "[DEGRADED] patch verification tool failure",
+                    run_id=run_id,
+                    iteration=n,
+                    trace_id=review.trace_ids[0],
+                    reason=review.reason,
+                )
+                emit(
+                    _log,
+                    DemoTag.SYSTEM_DECISION,
+                    f"[DEGRADED] {reason}",
+                    run_id=run_id,
+                    agent="orchestrator",
+                    action="tool_failure",
+                    trace_id=review.trace_ids[0],
+                    iteration=n,
+                )
+                return _LoopResult(
+                    outcome=Outcome.TOOL_FAILURE,
+                    final_proposal=proposal,
+                    assessment=assessment,
+                    review=review,
+                    iterations=n,
+                    trace_ids=trace_ids,
+                    memory_ids=memory_ids + finding_memory_ids,
+                    finding_memory_ids=finding_memory_ids,
+                    negotiation=negotiation,
+                    tool_failure_reason=reason,
+                    dynamic_verification_reason=None,
+                )
 
             consensus = assessment.verdict is YieldVerdict.ACCEPT and not review.vetoed
             is_final = n == self._budget.max_iterations
@@ -537,6 +777,8 @@ class WarRoomGraph:
             memory_ids=memory_ids + finding_memory_ids,
             finding_memory_ids=finding_memory_ids,
             negotiation=negotiation,
+            tool_failure_reason=None,
+            dynamic_verification_reason=None,
         )
 
     @staticmethod
@@ -587,6 +829,46 @@ class WarRoomGraph:
         self, run_id: str, loop: _LoopResult, ledger: TokenLedger
     ) -> RiskProfile:
         """Build the final RiskProfile: Arbitrator narrative + graph accounting."""
+        if loop.outcome is Outcome.TOOL_FAILURE:
+            profile = RiskProfile(
+                run_id=run_id,
+                outcome=Outcome.TOOL_FAILURE,
+                final_proposal=None,
+                residual_risk_pct=0.0,
+                residual_risk_description=_residual_risk_description(loop),
+                mitigations_applied=[],
+                memory_records_used=_dedup(loop.memory_ids),
+                iterations=loop.iterations,
+                tokens_total=ledger.total,
+                trace_ids=_dedup(loop.trace_ids),
+                dynamic_verification_status=DynamicVerificationStatus.FAILED,
+            )
+            _annotate_residual_risk(
+                profile,
+                headline_trace_id=loop.trace_ids[-1] if loop.trace_ids else None,
+            )
+            return profile
+        if loop.outcome is Outcome.DYNAMIC_VERIFICATION_UNAVAILABLE:
+            profile = RiskProfile(
+                run_id=run_id,
+                outcome=Outcome.DYNAMIC_VERIFICATION_UNAVAILABLE,
+                final_proposal=(
+                    loop.final_proposal.patch_id if loop.final_proposal else None
+                ),
+                residual_risk_pct=0.0,
+                residual_risk_description=_residual_risk_description(loop),
+                mitigations_applied=[],
+                memory_records_used=_dedup(loop.memory_ids),
+                iterations=loop.iterations,
+                tokens_total=ledger.total,
+                trace_ids=_dedup(loop.trace_ids),
+                dynamic_verification_status=DynamicVerificationStatus.UNAVAILABLE,
+            )
+            _annotate_residual_risk(
+                profile,
+                headline_trace_id=loop.review.trace_ids[0],
+            )
+            return profile
         draft = self._arbitrator.synthesize(
             _synthesis_task(run_id, loop.outcome, loop.final_proposal, loop.iterations)
         )
@@ -598,14 +880,15 @@ class WarRoomGraph:
                 loop.final_proposal.patch_id if loop.final_proposal else None
             ),
             residual_risk_pct=draft.residual_risk_pct,
-            residual_risk_description=draft.residual_risk_description,
+            residual_risk_description=_residual_risk_description(loop),
             mitigations_applied=draft.mitigations_applied,
             memory_records_used=_dedup(loop.memory_ids),
             iterations=loop.iterations,
             tokens_total=ledger.total,
             trace_ids=_dedup(loop.trace_ids),
+            dynamic_verification_status=DynamicVerificationStatus.PASSED,
         )
-        _annotate_residual_risk(profile)
+        _annotate_residual_risk(profile, headline_trace_id=loop.review.trace_ids[0])
         return profile
 
     def _empty_profile(
@@ -630,6 +913,7 @@ class WarRoomGraph:
             iterations=0,
             tokens_total=ledger.total,
             trace_ids=_dedup(trace_ids),
+            dynamic_verification_status=DynamicVerificationStatus.PASSED,
         )
         _annotate_residual_risk(profile)
         return profile
@@ -667,6 +951,112 @@ class WarRoomGraph:
             negotiation=negotiation or [],
         )
 
+    def _latest_patch_id(self) -> str | None:
+        """Return the latest CodebaseMCP patch id visible before a proposal."""
+        latest = self._latest_patch_result()
+        return latest.patch_id if latest is not None else None
+
+    def _latest_patch_result(self) -> ProposeResult | None:
+        """Return CodebaseMCP's latest successful propose_patch result, if any."""
+        latest = getattr(self._codebase, "latest_patch", None)
+        if not callable(latest):
+            return None
+        try:
+            result = latest()
+        except Exception as exc:
+            _log.warning("latest patch lookup failed", error=str(exc))
+            return None
+        if result is None:
+            return None
+        if isinstance(result, ProposeResult):
+            return result
+        try:
+            return ProposeResult.model_validate(result)
+        except Exception as exc:
+            _log.warning("latest patch result invalid", error=str(exc))
+            return None
+
+    def _latest_patch_error(self) -> str | None:
+        """Return CodebaseMCP's latest propose_patch error detail, if exposed."""
+        latest_error = getattr(self._codebase, "latest_patch_error", None)
+        if not callable(latest_error):
+            return None
+        try:
+            error = latest_error()
+        except Exception as exc:
+            _log.warning("latest patch error lookup failed", error=str(exc))
+            return None
+        return str(error) if error else None
+
+    def _attach_latest_patch_result(
+        self, proposal: Proposal, latest_patch_before: str | None
+    ) -> Proposal:
+        """Copy a real CodebaseMCP patch id when the model omitted it."""
+        if proposal.patch_id:
+            return proposal
+        latest = self._latest_patch_result()
+        if latest is None:
+            return proposal
+        patch_id = latest.patch_id
+        if not patch_id or patch_id == latest_patch_before:
+            return proposal
+        _log.warning(
+            "arbitrator omitted patch_id; using latest CodebaseMCP staged patch",
+            proposal_id=proposal.proposal_id,
+            patch_id=patch_id,
+        )
+        return proposal.model_copy(
+            update={
+                "patch_id": patch_id,
+                "staged_source_path": latest.staged_source_path,
+                "staged_artifact": latest.staged_artifact,
+                "contract_name": latest.contract_name,
+                "artifact_path": latest.artifact_path,
+                "original_target_path": latest.original_target_path,
+            }
+        )
+
+    def _attach_staged_artifact(self, target: str, proposal: Proposal) -> Proposal:
+        """Attach a compiled staged artifact target from CodebaseMCP when present."""
+        if not _is_uploaded_target(target) or not proposal.patch_id:
+            return proposal
+        metadata_resolver = getattr(self._codebase, "staged_metadata", None)
+        if callable(metadata_resolver):
+            try:
+                metadata = metadata_resolver(proposal.patch_id)
+            except Exception as exc:
+                _log.warning(
+                    "staged metadata unavailable",
+                    patch_id=proposal.patch_id,
+                    error=str(exc),
+                )
+            else:
+                if metadata is not None:
+                    return proposal.model_copy(
+                        update={
+                            "staged_source_path": metadata.staged_source_path,
+                            "staged_artifact": metadata.deploy_target,
+                            "contract_name": metadata.contract_name,
+                            "artifact_path": metadata.artifact_path,
+                            "original_target_path": metadata.original_target_path,
+                        }
+                    )
+        resolver = getattr(self._codebase, "staged_artifact", None)
+        if not callable(resolver):
+            return proposal
+        try:
+            artifact = resolver(proposal.patch_id)
+        except Exception as exc:
+            _log.warning(
+                "staged artifact unavailable",
+                patch_id=proposal.patch_id,
+                error=str(exc),
+            )
+            return proposal
+        if not artifact:
+            return proposal
+        return proposal.model_copy(update={"staged_artifact": artifact})
+
 
 # --------------------------------------------------------------------------- #
 # Context builders — §9 windowing: carry only the current proposal + the
@@ -682,10 +1072,43 @@ def _initial_yield_task(target: str) -> str:
 
 
 def _initial_adversary_task(target: str) -> str:
+    if _is_uploaded_target(target):
+        return (
+            f"Initial scan of uploaded contract {target} (proposal id: original). "
+            f"Use generic probes only: read_contract, list_functions, and "
+            f"deploy_to_fork with [] so SimulationMCP can infer supported "
+            f"constructor arguments from ABI. If inference reports "
+            f"dynamic_verification_unavailable, continue with static audit and "
+            f"say dynamic verification was unavailable. "
+            f"Do not run demo scenarios such as nominal, fee_spike, or "
+            f"high_congestion. Do not run exploit harnesses unless a named "
+            f"harness clearly matches this contract's ABI. For source-only "
+            f"findings say 'static finding only; no exploit trace available' "
+            f"and do not claim exploit execution. Cite real SimulationMCP "
+            f"trace_ids only for deployment or measured execution claims."
+        )
+    if "YieldVault" in target:
+        return (
+            f"Initial scan of {target} (proposal id: original). Read the contract, "
+            f"deploy it to the fork, then test access control directly: measure "
+            f"deposit with value, call setOperator from a non-owner account, and "
+            f"call emergencyWithdraw from the reassigned operator. A privileged "
+            f"call from a non-owner that does not revert is evidence. Cite every "
+            f"SimulationMCP trace_id behind your verdict."
+        )
+    if "SubscriptionBilling" in target:
+        return (
+            f"Initial scan of {target} (proposal id: original). Deploy it to the "
+            f"fork, run nominal plus fee_spike/high_congestion scenarios, and "
+            f"inspect cancelSubscription for reentrancy risk. Valid scenario names "
+            f"are: nominal, fee_spike, high_congestion. Cite every SimulationMCP "
+            f"trace_id behind your verdict."
+        )
     return (
         f"Initial scan of {target} (proposal id: original). Deploy it to the "
-        f"fork and run the baseline scenario sweep; cite every SimulationMCP "
-        f"trace_id behind your verdict."
+        f"fork and run relevant SimulationMCP scenarios. Valid scenario names "
+        f"are: nominal, fee_spike, high_congestion. Cite every SimulationMCP "
+        f"trace_id behind your verdict; do not use a scenario named baseline."
     )
 
 
@@ -722,18 +1145,95 @@ def _propose_task(
 
 
 def _evaluate_task(proposal: Proposal) -> str:
+    patch_path = _staged_patch_path(proposal)
     return (
         f"Evaluate staged patch {proposal.patch_id} ({proposal.summary}) against "
-        f"the business requirements. Cite specific functions."
+        f"the business requirements. Read the patch with "
+        f"read_contract('{patch_path}') and list_functions('{patch_path}'). "
+        f"Do not invent any other filename. Cite specific functions from that "
+        f"staged patch."
     )
 
 
 def _review_task(target: str, proposal: Proposal) -> str:
+    patch_path = _staged_patch_path(proposal)
+    deploy_target = _staged_deploy_target(proposal)
+    if _is_uploaded_target(target):
+        return (
+            f"Review uploaded-contract staged patch {proposal.patch_id} "
+            f"(proposal id {proposal.proposal_id}). Read the staged source at "
+            f"{patch_path}; do not invent another filename. Use generic probes "
+            f"only. Deploy the staged contract as {deploy_target} with [] so "
+            f"SimulationMCP can infer "
+            f"supported constructor arguments from ABI. If constructor inference "
+            f"reports dynamic_verification_unavailable, continue static review and "
+            f"report dynamic verification unavailable. Do not call measure_gas "
+            f"unless deployment returned an address. Do not run demo scenarios or "
+            f"unrelated exploit harnesses. "
+            f"If dynamic exploit verification is unavailable, say 'static "
+            f"finding only; no exploit trace available'. If the staged patch "
+            f"cannot be deployed or simulated, report it as unverifiable with "
+            f"the real degraded SimulationMCP trace_id."
+        )
     return (
         f"Re-simulate {target} with staged patch {proposal.patch_id} (proposal "
-        f"id {proposal.proposal_id}). Veto or clear, citing SimulationMCP "
-        f"trace_ids for every claim."
+        f"id {proposal.proposal_id}). The staged source is available to read at "
+        f"{patch_path}; do not invent another filename. Valid scenario names are: "
+        f"nominal, fee_spike, high_congestion. Veto or clear, citing "
+        f"SimulationMCP trace_ids for every claim. Do not clear the proposal based "
+        f"only on reset_fork or a failed deploy; if the staged patch cannot be "
+        f"deployed or simulated, veto it as unverifiable."
     )
+
+
+def _staged_patch_path(proposal: Proposal) -> str:
+    """Return the CodebaseMCP read alias for a staged patch."""
+    return f"contracts/staged_patches/{proposal.patch_id}.sol"
+
+
+def _staged_deploy_target(proposal: Proposal) -> str:
+    """Return the SimulationMCP deploy target for a staged patch."""
+    return proposal.staged_artifact or _staged_patch_path(proposal)
+
+
+def _is_uploaded_target(target: str) -> bool:
+    """Return True for browser-uploaded audit workspace contracts."""
+    return "/audit_workdir/" in target or "/uploads/" in target
+
+
+def _is_patch_verification_tool_failure(review: AdversaryReview) -> bool:
+    """Detect infra failures that should not become protocol veto rounds."""
+    if not review.vetoed:
+        return False
+    if _is_dynamic_verification_unavailable(review):
+        return False
+    text = f"{review.reason} {review.evidence}".lower()
+    markers = (
+        "missing artifact",
+        "build artifact",
+        "cannot be deployed",
+        "could not be deployed",
+        "cannot deploy",
+        "failed to deploy",
+        "unverifiable",
+        "no simulations can be run",
+        "no simulation",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _is_dynamic_verification_unavailable(review: AdversaryReview) -> bool:
+    """Detect unsupported generic dynamic verification, not protocol risk."""
+    text = f"{review.reason} {review.evidence}".lower()
+    markers = (
+        "dynamic_verification_unavailable",
+        "dynamic verification unavailable",
+        "unsupported constructor",
+        "constructor inference",
+        "constructor argument",
+        "arrays and structs are unsupported",
+    )
+    return any(marker in text for marker in markers)
 
 
 def _memory_task(veto: Veto) -> str:

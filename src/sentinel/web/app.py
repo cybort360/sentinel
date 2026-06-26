@@ -102,7 +102,7 @@ def create_app(
     async def events(request: Request) -> Response:
         """Stream trace + control events to the browser as SSE."""
         return StreamingResponse(
-            _event_stream(bus),
+            _event_stream(bus, request),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -129,7 +129,7 @@ def create_app(
         except (json.JSONDecodeError, ValueError):
             return JSONResponse({"error": "invalid JSON body"}, 400)
         try:
-            decision = CheckpointDecision(str(body.get("decision", "")))
+            decision = _checkpoint_decision(body)
         except ValueError:
             return JSONResponse(
                 {"error": "decision must be one of " + _DECISION_CHOICES}, 400
@@ -220,7 +220,17 @@ def create_app(
     )
 
 
+_DECISION_ALIASES = {
+    "acknowledge": CheckpointDecision.ACKNOWLEDGE_INCOMPLETE.value,
+    "acknowledge_incomplete_audit": CheckpointDecision.ACKNOWLEDGE_INCOMPLETE.value,
+}
 _DECISION_CHOICES = ", ".join(d.value for d in CheckpointDecision)
+
+
+def _checkpoint_decision(body: dict[str, object]) -> CheckpointDecision:
+    """Parse a checkpoint decision body, accepting legacy acknowledge aliases."""
+    raw = str(body.get("decision") or body.get("action") or "")
+    return CheckpointDecision(_DECISION_ALIASES.get(raw, raw))
 
 
 def _sse(event: Mapping[str, Any]) -> bytes:
@@ -228,16 +238,19 @@ def _sse(event: Mapping[str, Any]) -> bytes:
     return f"data: {json.dumps(event, default=str)}\n\n".encode()
 
 
-async def _event_stream(bus: TraceBus) -> AsyncIterator[bytes]:
+async def _event_stream(
+    bus: TraceBus, request: Request | None = None
+) -> AsyncIterator[bytes]:
     """Yield SSE frames from the bus, with periodic heartbeats.
 
-    No explicit disconnect poll: when the browser closes the stream Starlette
-    cancels this generator, and the ``finally`` unsubscribes. Heartbeat comments
-    keep idle connections (and proxies) alive between events.
+    Browser disconnects and closed subscriptions end the stream cleanly.
+    Heartbeat comments keep idle connections and proxies alive between events.
     """
     subscription = bus.subscribe()
     try:
         while True:
+            if request is not None and await request.is_disconnected():
+                break
             try:
                 event = await asyncio.wait_for(
                     subscription.__anext__(), timeout=_HEARTBEAT_SECONDS
@@ -245,7 +258,11 @@ async def _event_stream(bus: TraceBus) -> AsyncIterator[bytes]:
             except TimeoutError:
                 yield b": ping\n\n"
                 continue
+            except StopAsyncIteration:
+                break
             yield _sse(event)
+    except asyncio.CancelledError:
+        raise
     finally:
         await subscription.aclose()
 

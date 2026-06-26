@@ -20,6 +20,7 @@ def test_from_env_reads_models_and_endpoint(monkeypatch: pytest.MonkeyPatch) -> 
     assert config.model_for(AgentRole.YIELD) == "custom-yield-model"
     # Unset model var falls back to the documented draft default.
     assert config.model_for(AgentRole.ARBITRATOR) == "qwen3-max"
+    assert config.model_for(AgentRole.ADVERSARY) == "qwen3-max"
 
 
 def test_from_env_requires_credentials(monkeypatch: pytest.MonkeyPatch) -> None:

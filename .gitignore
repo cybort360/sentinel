@@ -17,6 +17,7 @@ htmlcov/
 /data/
 sandbox/out/
 sandbox/contracts/uploads/
+sandbox/contracts/staged_patches/
 sandbox/cache/
 sandbox/broadcast/
 sandbox/deployments/

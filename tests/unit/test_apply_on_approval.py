@@ -64,6 +64,17 @@ def test_reject_does_not_apply() -> None:
     assert applier.calls == []
 
 
+def test_acknowledge_incomplete_does_not_apply() -> None:
+    applier = _FakeApplier()
+    result = apply_approved_patch(
+        _outcome(CheckpointDecision.ACKNOWLEDGE_INCOMPLETE, False),
+        codebase=applier,
+        patch_id="p1",
+    )
+    assert result is None
+    assert applier.calls == []
+
+
 def test_no_patch_id_is_noop() -> None:
     applier = _FakeApplier()
     assert (

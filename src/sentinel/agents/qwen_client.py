@@ -6,8 +6,8 @@ endpoint, so this is a small wrapper around the ``openai`` SDK pointed at
 environment — nothing is hardcoded, so once the values are confirmed against the
 hackathon voucher credentials they only need to change in ``.env``.
 
-The draft model ids (``qwen3-max``, ``qwen3-coder-plus``, ``qwen-plus``,
-``qwen3-max-thinking``) and the base URL are UNVERIFIED placeholders. Run this
+The draft model ids (``qwen3-max``, ``qwen3-coder-plus``, ``qwen-plus``)
+and the base URL are UNVERIFIED placeholders. Run this
 module as a script with real credentials to verify them::
 
     uv run python -m sentinel.agents.qwen_client
@@ -31,7 +31,7 @@ _log = get_logger("qwen")
 # and are explicitly UNVERIFIED — confirm against the voucher catalog.
 _MODEL_ENV: dict[AgentRole, tuple[str, str]] = {
     AgentRole.YIELD: ("QWEN_MODEL_YIELD", "qwen3-coder-plus"),
-    AgentRole.ADVERSARY: ("QWEN_MODEL_ADVERSARY", "qwen3-max-thinking"),
+    AgentRole.ADVERSARY: ("QWEN_MODEL_ADVERSARY", "qwen3-max"),
     AgentRole.ARBITRATOR: ("QWEN_MODEL_ARBITRATOR", "qwen3-max"),
     AgentRole.LESSONS: ("QWEN_MODEL_LESSONS", "qwen-plus"),
     AgentRole.BASELINE: ("QWEN_MODEL_BASELINE", "qwen3-max"),

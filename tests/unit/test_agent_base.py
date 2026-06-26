@@ -78,6 +78,39 @@ def test_tool_call_is_dispatched_then_final_answer_returned() -> None:
     )
 
 
+def test_structured_trace_ids_are_sourced_from_tool_results() -> None:
+    def simulate() -> dict[str, str]:
+        """Return a simulation trace."""
+        return {"trace_id": "real-trace", "ok": "true"}
+
+    payload = {
+        "proposal_id": "p1",
+        "run_id": "r1",
+        "iteration": 0,
+        "summary": "x",
+        "trace_ids": ["fake-trace"],
+    }
+    client = FakeChatClient(
+        [
+            ChatResponse(
+                content=None,
+                tool_calls=[ToolCall(id="1", name="simulate", arguments={})],
+            ),
+            ChatResponse(content=json.dumps(payload)),
+        ]
+    )
+
+    agent = _agent(
+        client,
+        tools=[tool_from_callable(simulate)],
+        output_schema=Proposal,
+    )
+    result = agent.run("go")
+
+    assert isinstance(result, Proposal)
+    assert result.trace_ids == ["real-trace"]
+
+
 def test_unknown_tool_does_not_crash_and_run_recovers() -> None:
     client = FakeChatClient(
         [
@@ -90,6 +123,30 @@ def test_unknown_tool_does_not_crash_and_run_recovers() -> None:
     assert _agent(client).run("go") == "recovered"
     tool_msg = next(m for m in client.calls[1]["messages"] if m.get("role") == "tool")  # type: ignore[union-attr]
     assert "error" in str(tool_msg["content"])
+
+
+def test_tool_error_trace_id_is_returned_to_model() -> None:
+    class TraceBackedError(RuntimeError):
+        trace_id = "degraded-trace"
+
+    def explode() -> None:
+        """Fail with trace-backed evidence."""
+        raise TraceBackedError("missing artifact")
+
+    client = FakeChatClient(
+        [
+            ChatResponse(
+                content=None,
+                tool_calls=[ToolCall(id="1", name="explode", arguments={})],
+            ),
+            ChatResponse(content="recovered"),
+        ]
+    )
+
+    assert _agent(client, tools=[tool_from_callable(explode)]).run("go") == "recovered"
+    tool_msg = next(m for m in client.calls[1]["messages"] if m.get("role") == "tool")  # type: ignore[union-attr]
+    content = json.loads(str(tool_msg["content"]))
+    assert content == {"error": "missing artifact", "trace_id": "degraded-trace"}
 
 
 def test_structured_output_parses_into_pydantic_schema() -> None:

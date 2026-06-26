@@ -22,6 +22,8 @@ from sentinel.orchestrator.checkpoint import (
     CheckpointDecision,
     CheckpointResponse,
     DecisionPacket,
+    packet_allows_approval,
+    packet_allows_incomplete_acknowledgement,
 )
 from sentinel.web.bus import TraceBus
 
@@ -37,6 +39,7 @@ class WebResponder:
         """Wire the responder to the event bus it announces pending gates on."""
         self._bus = bus
         self._pending: dict[str, asyncio.Future[CheckpointResponse]] = {}
+        self._packets: dict[str, DecisionPacket] = {}
 
     async def ask(self, packet: DecisionPacket) -> CheckpointResponse:
         """Announce the gate and block until a browser submits a decision.
@@ -50,6 +53,7 @@ class WebResponder:
         loop = asyncio.get_running_loop()
         future: asyncio.Future[CheckpointResponse] = loop.create_future()
         self._pending[packet.run_id] = future
+        self._packets[packet.run_id] = packet
         self._bus.publish(
             {
                 "kind": "checkpoint_pending",
@@ -61,6 +65,7 @@ class WebResponder:
             return await future  # genuinely blocks — only resolve() completes it
         finally:
             self._pending.pop(packet.run_id, None)
+            self._packets.pop(packet.run_id, None)
 
     def is_pending(self, run_id: str) -> bool:
         """Return True while ``run_id`` is blocked awaiting a human decision."""
@@ -93,6 +98,17 @@ class WebResponder:
         if future is None or future.done():
             raise CheckpointNotPendingError(
                 f"no checkpoint is awaiting a decision for run {run_id!r}"
+            )
+        packet = self._packets.get(run_id)
+        if decision is CheckpointDecision.APPROVE and (
+            packet is None or not packet_allows_approval(packet)
+        ):
+            raise ValueError("approve requires a staged patch_id in the checkpoint")
+        if decision is CheckpointDecision.ACKNOWLEDGE_INCOMPLETE and (
+            packet is None or not packet_allows_incomplete_acknowledgement(packet)
+        ):
+            raise ValueError(
+                "acknowledge_incomplete requires an incomplete or unverified audit"
             )
         response = CheckpointResponse(
             decision=decision,

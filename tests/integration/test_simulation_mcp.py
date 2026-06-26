@@ -18,9 +18,13 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from tests.integration.sandbox_build import build_demo_contracts
 
 from sentinel.mcp_servers.simulation_mcp.anvil import AnvilProcess
-from sentinel.mcp_servers.simulation_mcp.config import SimulationConfig
+from sentinel.mcp_servers.simulation_mcp.config import (
+    SimulationConfig,
+    SimulationDegradedError,
+)
 from sentinel.mcp_servers.simulation_mcp.engine import SimulationEngine
 
 pytestmark = pytest.mark.integration
@@ -36,7 +40,7 @@ def engine() -> Iterator[SimulationEngine]:
     """Compile the sandbox contracts, boot a fresh Anvil, yield an engine."""
     if shutil.which("anvil") is None or shutil.which("forge") is None:
         pytest.skip("Foundry (anvil/forge) not installed")
-    subprocess.run(["forge", "build"], cwd=_SANDBOX, check=True)
+    build_demo_contracts(_SANDBOX)
     anvil = AnvilProcess(host="127.0.0.1", port=_TEST_PORT)
     anvil.start()
     try:
@@ -56,6 +60,122 @@ def test_deploy_returns_address_and_trace(engine: SimulationEngine) -> None:
     assert result.trace_id
     # The trace must be replayable (Golden Rule #1 provenance).
     assert engine.get_trace(result.trace_id) is not None
+
+
+def test_missing_artifact_degradation_has_trace(engine: SimulationEngine) -> None:
+    with pytest.raises(SimulationDegradedError) as exc_info:
+        engine.deploy_to_fork("contracts/staged_patches/missing.sol", [])
+
+    trace_id = exc_info.value.trace_id
+    assert trace_id
+    trace = engine.get_trace(trace_id)
+    assert trace is not None
+    assert trace["tool"] == "deploy_to_fork"
+    assert trace["degraded"] is True
+    assert "patch_artifact_missing" in trace["summary"]
+
+
+def test_uploaded_three_address_constructor_uses_inferred_args(
+    engine: SimulationEngine,
+) -> None:
+    source = _write_upload_contract(
+        "ThreeAddressConstructorUpload",
+        """
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract ThreeAddressConstructorUpload {
+    address public a;
+    address public b;
+    address public c;
+
+    constructor(address _a, address _b, address _c) {
+        a = _a;
+        b = _b;
+        c = _c;
+    }
+}
+""",
+    )
+    _forge_build_upload(source)
+
+    deployed = engine.deploy_to_fork("ThreeAddressConstructorUpload", [])
+    trace = engine.get_trace(deployed.trace_id)
+
+    assert trace is not None
+    args = trace["constructor_args"]
+    assert len(args) == 3
+    assert all(str(arg).startswith("0x") for arg in args)
+    assert all(int(str(arg), 16) != 0 for arg in args)
+    assert any(
+        t.get("tool") == "infer_constructor_args"
+        and t.get("contract") == "ThreeAddressConstructorUpload"
+        for t in engine._traces.values()
+    )
+
+
+def test_unsupported_constructor_args_mark_dynamic_verification_unavailable(
+    engine: SimulationEngine,
+) -> None:
+    source = _write_upload_contract(
+        "UnsupportedArrayConstructorUpload",
+        """
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract UnsupportedArrayConstructorUpload {
+    address[] public owners;
+
+    constructor(address[] memory _owners) {
+        owners = _owners;
+    }
+}
+""",
+    )
+    _forge_build_upload(source)
+
+    with pytest.raises(SimulationDegradedError) as exc_info:
+        engine.deploy_to_fork("UnsupportedArrayConstructorUpload", [])
+
+    assert "dynamic_verification_unavailable" in str(exc_info.value)
+    trace = engine.get_trace(exc_info.value.trace_id or "")
+    assert trace is not None
+    assert trace["tool"] == "infer_constructor_args"
+    assert trace["degraded"] is True
+    assert trace["argument_type"] == "address[]"
+
+
+def test_compiled_staged_uploaded_patch_can_be_deployed(
+    engine: SimulationEngine,
+) -> None:
+    source = _write_staged_patch_contract(
+        "patchdeployable",
+        "StagedPatchedUpload",
+        """
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract StagedPatchedUpload {
+    address public owner;
+
+    constructor(address _owner) {
+        owner = _owner;
+    }
+}
+""",
+    )
+    _forge_build_upload(source)
+
+    deployed = engine.deploy_to_fork(
+        "contracts/staged_patches/patchdeployable.sol",
+        [],
+    )
+
+    trace = engine.get_trace(deployed.trace_id)
+    assert deployed.address.startswith("0x")
+    assert trace is not None
+    assert trace["contract"] == "contracts/staged_patches/patchdeployable.sol"
+    assert "deployed StagedPatchedUpload" in trace["summary"]
 
 
 def test_fee_spike_yields_100_percent_revert(engine: SimulationEngine) -> None:
@@ -107,3 +227,27 @@ def test_reset_fork_succeeds(engine: SimulationEngine) -> None:
     result = engine.reset_fork()
     assert result.ok
     assert result.trace_id
+
+
+def _write_upload_contract(name: str, source: str) -> Path:
+    path = _SANDBOX / "contracts" / "audit_workdir" / f"{name}.sol"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source)
+    return path
+
+
+def _write_staged_patch_contract(patch_id: str, name: str, source: str) -> Path:
+    path = _SANDBOX / "contracts" / "staged_patches" / f"{patch_id}.sol"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source)
+    return path
+
+
+def _forge_build_upload(path: Path) -> None:
+    subprocess.run(
+        ["forge", "build", path.relative_to(_SANDBOX).as_posix()],
+        cwd=_SANDBOX,
+        check=True,
+        capture_output=True,
+        text=True,
+    )

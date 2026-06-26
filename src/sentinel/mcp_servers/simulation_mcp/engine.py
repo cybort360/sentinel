@@ -148,6 +148,8 @@ class SimulationEngine:
         """
         try:
             artifact = load_artifact(contract, self._config.artifacts_dir)
+            if not constructor_args:
+                constructor_args = self._infer_constructor_args(contract, artifact.abi)
             factory = self._w3.eth.contract(
                 abi=artifact.abi, bytecode=artifact.bytecode
             )
@@ -156,10 +158,26 @@ class SimulationEngine:
             )
             receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash)
         except FileNotFoundError as exc:
-            self._log.error(
-                "[DEGRADED] deploy_to_fork artifact missing", contract=contract
+            summary = (
+                "patch_artifact_missing: missing artifact for staged patch"
+                if "staged_patches" in contract
+                else "deploy failed: missing artifact"
             )
-            raise SimulationDegradedError(str(exc)) from exc
+            raise self._degraded_error(
+                "deploy_to_fork",
+                summary,
+                exc,
+                contract=contract,
+            ) from exc
+        except SimulationDegradedError:
+            raise
+        except Exception as exc:
+            raise self._degraded_error(
+                "deploy_to_fork",
+                "deploy failed",
+                exc,
+                contract=contract,
+            ) from exc
         address = str(Web3.to_checksum_address(receipt["contractAddress"]))
         self._registry[address] = _DeployedContract(
             name=artifact.name, abi=artifact.abi
@@ -169,6 +187,7 @@ class SimulationEngine:
             summary=f"deployed {artifact.name} at {address}",
             contract=contract,
             address=address,
+            constructor_args=constructor_args,
         )
         return DeployResult(trace_id=trace_id, contract=contract, address=address)
 
@@ -192,9 +211,21 @@ class SimulationEngine:
         Returns:
             A :class:`GasResult` with the consumed gas and a trace id.
         """
-        contract = self.contract_at(address)
-        fn = getattr(contract.functions, function)(*args)
-        receipt = self.send_tx(fn, sender or self.deployer, value=value)
+        try:
+            contract = self.contract_at(address)
+            fn = getattr(contract.functions, function)(*args)
+            receipt = self.send_tx(fn, sender or self.deployer, value=value)
+        except Exception as exc:
+            raise self._degraded_error(
+                "measure_gas",
+                "gas measurement failed",
+                exc,
+                address=address,
+                function=function,
+                args=args,
+                value=value,
+                sender=sender,
+            ) from exc
         gas_used = int(receipt["gasUsed"])
         reverted = int(receipt["status"]) == 0
         trace_id = self._record(
@@ -313,12 +344,16 @@ class SimulationEngine:
         try:
             exploited, drained, reverted = get_exploit(exploit)(self, target_contract)
         except (KeyError, SimulationDegradedError) as exc:
-            self._log.error(
-                "[DEGRADED] run_exploit failed",
+            existing_trace_id = getattr(exc, "trace_id", None)
+            if existing_trace_id:
+                raise
+            raise self._degraded_error(
+                "run_exploit",
+                "exploit run failed",
+                exc,
                 contract=target_contract,
                 exploit=exploit,
-            )
-            raise SimulationDegradedError(str(exc)) from exc
+            ) from exc
         verdict = (
             "exploited" if exploited else ("reverted" if reverted else "no effect")
         )
@@ -404,6 +439,91 @@ class SimulationEngine:
                     errors.append(error)
         return sent, reverts, errors
 
+    def _infer_constructor_args(self, contract: str, abi: list[Any]) -> list[Any]:
+        """Infer safe generic constructor args for ABI-supported scalar types."""
+        ctor = next(
+            (entry for entry in abi if entry.get("type") == "constructor"),
+            None,
+        )
+        inputs = list(ctor.get("inputs", [])) if ctor else []
+        if not inputs:
+            return []
+        args: list[Any] = []
+        address_i = 1
+        for item in inputs:
+            typ = str(item.get("type", ""))
+            name = str(item.get("name") or f"arg{len(args)}")
+            if "[" in typ or typ.startswith(("tuple", "struct")):
+                self._raise_constructor_unavailable(
+                    contract, typ, name, args, "arrays and structs are unsupported"
+                )
+            if typ == "address":
+                account = self.accounts[address_i % len(self.accounts)]
+                address_i += 1
+                if int(account, 16) == 0:
+                    self._raise_constructor_unavailable(
+                        contract, typ, name, args, "zero address would be unsafe"
+                    )
+                args.append(account)
+                continue
+            if typ.startswith(("uint", "int")):
+                args.append(1)
+                continue
+            if typ == "bool":
+                args.append(False)
+                continue
+            if typ == "string":
+                args.append("test")
+                continue
+            if typ == "bytes":
+                args.append("0x")
+                continue
+            if typ.startswith("bytes"):
+                try:
+                    size = int(typ.removeprefix("bytes"))
+                except ValueError:
+                    self._raise_constructor_unavailable(
+                        contract, typ, name, args, "unsupported bytes type"
+                    )
+                args.append("0x" + ("00" * size))
+                continue
+            self._raise_constructor_unavailable(
+                contract, typ, name, args, "unsupported constructor type"
+            )
+        self._record(
+            "infer_constructor_args",
+            summary=f"inferred constructor args for {contract}",
+            contract=contract,
+            constructor_arg_types=[str(i.get("type", "")) for i in inputs],
+            constructor_args=args,
+        )
+        return args
+
+    def _raise_constructor_unavailable(
+        self,
+        contract: str,
+        typ: str,
+        name: str,
+        partial_args: list[Any],
+        reason: str,
+    ) -> None:
+        """Record and raise a trace-backed dynamic-verification-unavailable error."""
+        trace_id = self._record(
+            "infer_constructor_args",
+            summary="dynamic verification unavailable: unsupported constructor args",
+            degraded=True,
+            contract=contract,
+            argument=name,
+            argument_type=typ,
+            partial_constructor_args=partial_args,
+            reason=reason,
+        )
+        raise SimulationDegradedError(
+            f"dynamic_verification_unavailable: unsupported constructor argument "
+            f"{name}:{typ} ({reason})",
+            trace_id=trace_id,
+        )
+
     def _record(self, tool: str, *, summary: str, **fields: Any) -> str:
         """Generate a trace id, log a structured trace event, and store it."""
         trace_id = uuid4().hex
@@ -411,6 +531,26 @@ class SimulationEngine:
         self._traces[trace_id] = entry
         self._log.info("sim_trace", trace_id=trace_id, **entry)
         return trace_id
+
+    def _degraded_error(
+        self, tool: str, summary: str, exc: Exception, **fields: Any
+    ) -> SimulationDegradedError:
+        """Record a trace-backed degraded failure for an uncompleted tool call."""
+        error = str(exc)
+        trace_id = self._record(
+            tool,
+            summary=summary,
+            degraded=True,
+            error=error,
+            **fields,
+        )
+        self._log.error(
+            f"[DEGRADED] {tool} failed",
+            trace_id=trace_id,
+            error=error,
+            **fields,
+        )
+        return SimulationDegradedError(error, trace_id=trace_id)
 
     def get_trace(self, trace_id: str) -> dict[str, Any] | None:
         """Return a previously recorded trace by id (for replay), or None."""
